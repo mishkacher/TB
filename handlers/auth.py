@@ -13,8 +13,7 @@ def authorized(handler):
     @wraps(handler)
     async def wrapped(update, context):
         if PUBLIC_ACCESS_ENABLED:
-            await handler(update, context)
-            return
+            return await handler(update, context)
 
         user = update.effective_user
         if user is None or not (
@@ -23,6 +22,6 @@ def authorized(handler):
             await update.effective_message.reply_text("Доступ к боту не разрешён.")
             return
 
-        await handler(update, context)
+        return await handler(update, context)
 
     return wrapped

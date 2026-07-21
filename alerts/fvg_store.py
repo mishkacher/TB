@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 import threading
 from copy import deepcopy
 from datetime import datetime, timezone
@@ -37,7 +38,9 @@ class AtomicJsonStore:
     def write(self, data: dict) -> None:
         with self._lock:
             self.path.parent.mkdir(parents=True, exist_ok=True)
-            temporary = self.path.with_suffix(self.path.suffix + ".tmp")
+            temporary = self.path.with_suffix(
+                f"{self.path.suffix}.{os.getpid()}.{threading.get_ident()}.tmp"
+            )
             temporary.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
             temporary.replace(self.path)
 

@@ -7,6 +7,7 @@ from alerts.fvg_detector import FvgDetector, aggregate_current_15m, price_allowe
 from alerts.fvg_models import Candle, FvgDirection, FvgEventType
 from alerts.fvg_service import FvgAlertService, format_fvg_message
 from alerts.fvg_store import FvgAlertSettings, FvgEventStore
+from handlers.fvg_alert import parse_price_filter_template
 
 
 UTC = timezone.utc
@@ -78,6 +79,35 @@ class PriceFilterTests(unittest.TestCase):
         self.assertFalse(price_allowed(Decimal("9.99"), True, Decimal("10"), None))
         self.assertFalse(price_allowed(Decimal("20.01"), True, None, Decimal("20")))
         self.assertTrue(price_allowed(Decimal("15"), True, Decimal("10"), Decimal("20")))
+
+    def test_parses_human_friendly_russian_template(self):
+        values = parse_price_filter_template(
+            "Инструмент: BTC/USDT\n"
+            "Минимальная цена: 60 000,5\n"
+            "Максимальная цена: нет\n"
+            "Применять к: подтверждённые"
+        )
+
+        self.assertEqual(values["symbol"], "BTCUSDT")
+        self.assertEqual(values["minimum"], "60000.5")
+        self.assertIsNone(values["maximum"])
+        self.assertEqual(values["scope"], "confirmed")
+
+    def test_parses_short_disable_template(self):
+        values = parse_price_filter_template(
+            "Инструмент: ETHUSDT\nФильтр: выключить"
+        )
+
+        self.assertEqual(values, {"symbol": "ETHUSDT", "enabled": False})
+
+    def test_template_explains_invalid_scope(self):
+        with self.assertRaisesRegex(ValueError, "оба, пред-FVG"):
+            parse_price_filter_template(
+                "Инструмент: BTCUSDT\n"
+                "Минимальная цена: 1\n"
+                "Максимальная цена: 2\n"
+                "Применять к: иногда"
+            )
 
 
 class SettingsAndDedupTests(unittest.TestCase):
