@@ -1,3 +1,4 @@
+from telegram import BotCommand, MenuButtonCommands
 from telegram.ext import Application, CallbackQueryHandler, CommandHandler
 
 from alerts.scheduler import schedule_alerts, schedule_fvg_alerts, start_fvg_stream, stop_fvg_stream
@@ -18,7 +19,26 @@ from handlers.menu import menu, menu_callback
 from handlers.access import access_callback, request_access
 
 
+BOT_COMMANDS = (
+    BotCommand("menu", "Открыть панель управления"),
+    BotCommand("fvg_alert", "Включить или выключить FVG"),
+    BotCommand("fvg_pre_alert", "Настроить пред-FVG T−3"),
+    BotCommand("fvg_stats", "Статистика FVG"),
+    BotCommand("status", "Состояние системы"),
+    BotCommand("btc", "BTC сейчас"),
+    BotCommand("chart", "График"),
+    BotCommand("scan", "Сканер рынка"),
+)
+
+
+async def configure_bot_interface(application):
+    """Enable Telegram's compact menu button beside the message field."""
+    await application.bot.set_my_commands(BOT_COMMANDS)
+    await application.bot.set_chat_menu_button(menu_button=MenuButtonCommands())
+
+
 async def post_init(application):
+    await configure_bot_interface(application)
     schedule_fvg_alerts(application)
     await start_fvg_stream(application)
     if AUTO_ALERTS_ENABLED:

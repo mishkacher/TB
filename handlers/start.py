@@ -30,6 +30,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "/fvg_stats — статистика FVG-событий\n"
         "/backtest — локальный бэктест стратегии через Backtrader\n"
         "/menu — кнопки управления"
-        "\n/access — запросить доступ к боту"
+        "\n/access — запросить доступ к боту\n\n"
+        "Кнопка меню рядом с полем сообщения открывает эти команды. "
+        "Выбери «Открыть панель управления» для графического меню."
     )
     await show_menu(update.effective_message, update.effective_chat.id)

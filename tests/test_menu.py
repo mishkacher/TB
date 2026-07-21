@@ -1,5 +1,8 @@
 import unittest
+from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
+from bot import BOT_COMMANDS, configure_bot_interface
 from handlers.fvg_alert import build_fvg_stats_period_menu
 from handlers.menu import build_chart_menu, build_main_menu
 
@@ -46,3 +49,17 @@ class MenuTests(unittest.TestCase):
             [button.callback_data for button in buttons],
             ["menu:fvg-stats:7", "menu:fvg-stats:30", "menu:fvg-stats:all"],
         )
+
+
+class TelegramMenuButtonTests(unittest.IsolatedAsyncioTestCase):
+    async def test_configures_compact_telegram_menu_button(self):
+        bot = SimpleNamespace(
+            set_my_commands=AsyncMock(),
+            set_chat_menu_button=AsyncMock(),
+        )
+
+        await configure_bot_interface(SimpleNamespace(bot=bot))
+
+        bot.set_my_commands.assert_awaited_once_with(BOT_COMMANDS)
+        bot.set_chat_menu_button.assert_awaited_once()
+        self.assertEqual(BOT_COMMANDS[0].command, "menu")
