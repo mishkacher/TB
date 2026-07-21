@@ -64,7 +64,10 @@ def build_fvg_settings_menu(chat_id, settings=None):
             InlineKeyboardButton(f"{mark(user['bullish_enabled'])} 🐂 Бычьи", callback_data="menu:fvg-bull-toggle"),
             InlineKeyboardButton(f"{mark(user['bearish_enabled'])} 🐻 Медвежьи", callback_data="menu:fvg-bear-toggle"),
         ],
-        [InlineKeyboardButton("➕ Инструменты и фильтр цены", callback_data="menu:fvg-symbol-help")],
+        [
+            InlineKeyboardButton("➕ Инструменты", callback_data="menu:fvg-symbol-help"),
+            InlineKeyboardButton("💰 Фильтр цены", callback_data="menu:fvg-price"),
+        ],
         [InlineKeyboardButton("⬅️ Главное меню", callback_data="menu:fvg-back")],
     ])
 
@@ -139,8 +142,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "fvg-symbol-help":
         await message.reply_text(
             "Инструменты: /fvg_symbol add ETHUSDT или /fvg_symbol remove ETHUSDT\n"
-            "Цена: /fvg_price BTCUSDT 50000 90000 both\n"
-            "Режим: pre, confirmed или both; знак - означает открытую границу."
+            "После добавления нажми кнопку «💰 Фильтр цены»."
         )
     elif action == "fvg-back":
         await message.edit_text("Панель управления Trading Assistant:", reply_markup=build_main_menu(chat_id))

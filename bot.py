@@ -14,7 +14,13 @@ from handlers.myid import myid
 from handlers.chart import chart
 from handlers.scan import scan
 from handlers.status import status
-from handlers.fvg_alert import fvg_alert, fvg_pre_alert, fvg_price, fvg_stats, fvg_symbol
+from handlers.fvg_alert import (
+    build_fvg_price_handlers,
+    fvg_alert,
+    fvg_pre_alert,
+    fvg_stats,
+    fvg_symbol,
+)
 from handlers.menu import menu, menu_callback
 
 
@@ -92,7 +98,8 @@ def main():
     app.add_handler(CommandHandler("fvg_pre_alert", fvg_pre_alert))
     app.add_handler(CommandHandler("fvg_stats", fvg_stats))
     app.add_handler(CommandHandler("fvg_symbol", fvg_symbol))
-    app.add_handler(CommandHandler("fvg_price", fvg_price))
+    for handler in build_fvg_price_handlers():
+        app.add_handler(handler)
 
     app.add_handler(CommandHandler("menu", menu))
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:"))
