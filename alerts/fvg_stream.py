@@ -5,9 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import ssl
 from datetime import datetime, timezone
 
 import aiohttp
+import certifi
 
 
 logger = logging.getLogger(__name__)
@@ -59,8 +61,11 @@ class BitunixFvgStream:
                 continue
             try:
                 timeout = aiohttp.ClientTimeout(total=None, sock_read=45)
+                ssl_context = ssl.create_default_context(cafile=certifi.where())
                 async with aiohttp.ClientSession(timeout=timeout) as session:
-                    async with session.ws_connect(self.URL, heartbeat=20) as ws:
+                    async with session.ws_connect(
+                        self.URL, heartbeat=20, ssl=ssl_context
+                    ) as ws:
                         args = [
                             {"symbol": symbol, "ch": channel}
                             for symbol in symbols

@@ -79,6 +79,7 @@ def schedule_alerts(application, interval_minutes):
 
 _FVG_SERVICE = None
 _FVG_STREAM = None
+_FVG_TASK = None
 
 
 def get_fvg_service():
@@ -147,12 +148,19 @@ def schedule_fvg_alerts(application):
 
 
 async def start_fvg_stream(application):
-    global _FVG_STREAM
+    global _FVG_STREAM, _FVG_TASK
     service = get_fvg_service()
     _FVG_STREAM = BitunixFvgStream(service)
-    application.create_task(_FVG_STREAM.run(application.bot), name="bitunix-fvg-stream")
+    _FVG_TASK = asyncio.create_task(
+        _FVG_STREAM.run(application.bot), name="bitunix-fvg-stream"
+    )
 
 
 async def stop_fvg_stream(application):
+    global _FVG_TASK
     if _FVG_STREAM is not None:
         _FVG_STREAM.stop()
+    if _FVG_TASK is not None:
+        _FVG_TASK.cancel()
+        await asyncio.gather(_FVG_TASK, return_exceptions=True)
+        _FVG_TASK = None
