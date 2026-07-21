@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from bot import BOT_COMMANDS, configure_bot_interface
+from handlers.auth import PUBLIC_ACCESS_ENABLED, authorized
 from handlers.fvg_alert import build_fvg_stats_period_menu
 from handlers.menu import build_chart_menu, build_main_menu
 
@@ -63,3 +64,18 @@ class TelegramMenuButtonTests(unittest.IsolatedAsyncioTestCase):
         bot.set_my_commands.assert_awaited_once_with(BOT_COMMANDS)
         bot.set_chat_menu_button.assert_awaited_once()
         self.assertEqual(BOT_COMMANDS[0].command, "menu")
+
+
+class PublicAccessTests(unittest.IsolatedAsyncioTestCase):
+    async def test_authorized_handlers_are_public_while_admin_panel_is_disabled(self):
+        calls = []
+
+        @authorized
+        async def handler(update, context):
+            calls.append((update, context))
+
+        update = SimpleNamespace(effective_user=None, effective_message=None)
+        await handler(update, "context")
+
+        self.assertTrue(PUBLIC_ACCESS_ENABLED)
+        self.assertEqual(calls, [(update, "context")])

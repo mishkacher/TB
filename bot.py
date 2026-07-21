@@ -16,7 +16,6 @@ from handlers.scan import scan
 from handlers.status import status
 from handlers.fvg_alert import fvg_alert, fvg_pre_alert, fvg_price, fvg_stats, fvg_symbol
 from handlers.menu import menu, menu_callback
-from handlers.access import access_callback, request_access
 
 
 BOT_COMMANDS = (
@@ -95,10 +94,8 @@ def main():
     app.add_handler(CommandHandler("fvg_symbol", fvg_symbol))
     app.add_handler(CommandHandler("fvg_price", fvg_price))
 
-    app.add_handler(CommandHandler("access", request_access))
     app.add_handler(CommandHandler("menu", menu))
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:"))
-    app.add_handler(CallbackQueryHandler(access_callback, pattern=r"^access:"))
 
     print("Trading Assistant запущен 🚀")
 
