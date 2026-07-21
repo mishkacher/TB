@@ -1,0 +1,48 @@
+import unittest
+
+from handlers.fvg_alert import build_fvg_stats_period_menu
+from handlers.menu import build_chart_menu, build_main_menu
+
+
+class EnabledSettings:
+    def is_enabled(self, chat_id):
+        return chat_id == 42
+
+    def is_pre_enabled(self, chat_id):
+        return False
+
+
+class MenuTests(unittest.TestCase):
+    def test_main_menu_contains_existing_functions_and_enabled_fvg_toggle(self):
+        keyboard = build_main_menu(42, settings=EnabledSettings()).inline_keyboard
+        labels = [row[0].text for row in keyboard]
+        callbacks = [row[0].callback_data for row in keyboard]
+
+        self.assertIn("🔎 Сканер рынка", labels)
+        self.assertIn("₿ BTC сейчас", labels)
+        self.assertIn("📈 График BTC", labels)
+        self.assertIn("📊 Статус системы", labels)
+        self.assertNotIn("🧪 Backtrader", labels)
+        self.assertIn("🔔 Настройки FVG 15м", labels)
+        self.assertIn("📊 Статистика FVG", labels)
+        self.assertIn("menu:fvg-settings", callbacks)
+        self.assertIn("menu:fvg-stats", callbacks)
+
+    def test_chart_menu_offers_all_supported_timeframes(self):
+        buttons = build_chart_menu().inline_keyboard[0]
+        self.assertEqual(
+            [button.callback_data for button in buttons],
+            ["menu:chart:15m", "menu:chart:1h", "menu:chart:4h"],
+        )
+
+    def test_fvg_statistics_period_menu_contains_all_periods(self):
+        buttons = build_fvg_stats_period_menu(30).inline_keyboard[0]
+
+        self.assertEqual(
+            [button.text for button in buttons],
+            ["7 дней", "✓ 30 дней", "Всё время"],
+        )
+        self.assertEqual(
+            [button.callback_data for button in buttons],
+            ["menu:fvg-stats:7", "menu:fvg-stats:30", "menu:fvg-stats:all"],
+        )
