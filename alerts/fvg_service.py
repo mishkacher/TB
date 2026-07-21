@@ -1,0 +1,174 @@
+"""Application service for FVG detection, filtering and Telegram delivery."""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from collections import defaultdict
+from datetime import datetime, timedelta, timezone
+from decimal import Decimal, InvalidOperation
+
+from alerts.fvg_detector import FvgDetector, aggregate_current_15m
+from alerts.fvg_models import Candle, FvgDirection, FvgEvent, FvgEventType
+from alerts.fvg_store import FvgAlertSettings, FvgEventStore
+from exchanges.bitunix import BitunixClient
+
+
+logger = logging.getLogger(__name__)
+UTC = timezone.utc
+INTERVALS = {"1m": timedelta(minutes=1), "15m": timedelta(minutes=15)}
+
+
+def floor_time(value: datetime, minutes: int) -> datetime:
+    value = value.astimezone(UTC)
+    return value.replace(second=0, microsecond=0, minute=value.minute - value.minute % minutes)
+
+
+def parse_rest_candle(raw: dict, symbol: str, timeframe: str, now: datetime) -> Candle:
+    step = INTERVALS[timeframe]
+    open_time = datetime.fromtimestamp(int(raw["time"]) / 1000, UTC)
+    close_time = open_time + step
+    try:
+        prices = {key: Decimal(str(raw[key])) for key in ("open", "high", "low", "close")}
+    except (KeyError, InvalidOperation) as error:
+        raise ValueError("Malformed Bitunix candle") from error
+    complete = all(value.is_finite() and value > 0 for value in prices.values())
+    if complete:
+        prices["high"] = max(prices["high"], prices["open"], prices["close"])
+        prices["low"] = min(prices["low"], prices["open"], prices["close"])
+    return Candle(
+        symbol=symbol, timeframe=timeframe, open_time=open_time, close_time=close_time,
+        is_closed=close_time <= now, is_complete=complete, **prices,
+    )
+
+
+def parse_ws_candle(payload: dict, now: datetime) -> Candle:
+    timeframe = "1m" if payload["ch"].endswith("_1min") else "15m"
+    step_minutes = 1 if timeframe == "1m" else 15
+    open_time = floor_time(datetime.fromtimestamp(int(payload["ts"]) / 1000, UTC), step_minutes)
+    data = payload["data"]
+    raw = {"time": int(open_time.timestamp() * 1000), "open": data["o"], "high": data["h"], "low": data["l"], "close": data["c"]}
+    return parse_rest_candle(raw, payload["symbol"], timeframe, now)
+
+
+class CandleCache:
+    def __init__(self, max_per_series: int = 400):
+        self.max_per_series = max_per_series
+        self._candles: dict[tuple[str, str], dict[datetime, Candle]] = defaultdict(dict)
+
+    def put(self, candle: Candle) -> None:
+        key = (candle.symbol, candle.timeframe)
+        self._candles[key][candle.open_time] = candle
+        for old_time in sorted(self._candles[key])[:-self.max_per_series]:
+            del self._candles[key][old_time]
+
+    def series(self, symbol: str, timeframe: str, now: datetime) -> list[Candle]:
+        refreshed = []
+        for candle in self._candles[(symbol, timeframe)].values():
+            if not candle.is_closed and candle.close_time <= now:
+                candle = Candle(**{**candle.__dict__, "is_closed": True})
+                self._candles[(symbol, timeframe)][candle.open_time] = candle
+            refreshed.append(candle)
+        return sorted(refreshed, key=lambda item: item.open_time)
+
+
+class FvgAlertService:
+    def __init__(self, client=None, detector=None, settings=None, event_store=None):
+        self.client = client or BitunixClient()
+        self.detector = detector or FvgDetector()
+        self.settings = settings or FvgAlertSettings()
+        self.event_store = event_store or FvgEventStore()
+        self.cache = CandleCache()
+        self._delivery_lock = asyncio.Lock()
+
+    def recover(self, symbol: str, now: datetime | None = None) -> list[FvgEvent]:
+        """Restore recent data and return only timely pre/current confirmed events."""
+        now = (now or datetime.now(UTC)).astimezone(UTC)
+        for timeframe, limit in (("15m", 20), ("1m", 25)):
+            response = self.client.get_candles(symbol, timeframe, limit)
+            for raw in response.get("data", []):
+                try:
+                    candle = parse_rest_candle(raw, symbol, timeframe, now)
+                except (ValueError, KeyError, TypeError):
+                    self.event_store.increment_health("invalid_candles")
+                    continue
+                self.cache.put(candle)
+        self.event_store.update_health(last_rest_recovery=now.isoformat(), last_error=None)
+        return self.evaluate(symbol, now, recovery=True)
+
+    def ingest_ws(self, payload: dict, now: datetime | None = None) -> list[FvgEvent]:
+        now = (now or datetime.now(UTC)).astimezone(UTC)
+        candle = parse_ws_candle(payload, now)
+        self.cache.put(candle)
+        self.event_store.update_health(last_ws_message=now.isoformat(), last_error=None)
+        return self.evaluate(candle.symbol, now)
+
+    def evaluate(self, symbol: str, now: datetime, recovery: bool = False) -> list[FvgEvent]:
+        events = []
+        closed = [c for c in self.cache.series(symbol, "15m", now) if c.is_closed and c.is_complete]
+        if len(closed) >= 3:
+            event = self.detector.detect_confirmed(closed[-3:], now)
+            # Confirmed recovery is allowed for one latest interval; pre recovery is forbidden.
+            if event and (not recovery or now - event.candle_c_close_time <= timedelta(minutes=15)):
+                events.append(event)
+        interval_open = floor_time(now, 15)
+        if interval_open + timedelta(minutes=12) <= now < interval_open + timedelta(minutes=13):
+            current = aggregate_current_15m(symbol, self.cache.series(symbol, "1m", now), interval_open, now)
+            previous = [c for c in closed if c.open_time < interval_open]
+            if current is not None and len(previous) >= 2:
+                event = self.detector.detect_pre(previous[-2], previous[-1], current, now)
+                if event:
+                    events.append(event)
+        return events
+
+    async def deliver(self, bot, events: list[FvgEvent]) -> None:
+        async with self._delivery_lock:
+            for event in events:
+                is_new_event = self.event_store.record_event(event)
+                if is_new_event:
+                    self.event_store.increment_health(
+                        "pre_events" if event.event_type is FvgEventType.PRE_FVG else "confirmed_events"
+                    )
+                recipients = self.settings.recipients(event)
+                if not recipients and is_new_event:
+                    self.event_store.increment_health("events_without_recipients")
+                for chat_id in recipients:
+                    if not self.event_store.delivery_needed(chat_id, event.event_id):
+                        continue
+                    try:
+                        await bot.send_message(chat_id=chat_id, text=format_fvg_message(event))
+                    except Exception as error:  # Telegram retries on the next evaluation.
+                        logger.warning("FVG delivery failed chat=%s event=%s: %s", chat_id, event.event_id, error)
+                        self.event_store.update_health(last_error=str(error))
+                        self.event_store.increment_health("delivery_failures")
+                        continue
+                    self.event_store.mark_delivered(chat_id, event.event_id)
+                    self.event_store.increment_health("notifications_sent")
+
+
+def _price(value: Decimal) -> str:
+    return f"{value:,.8f}".rstrip("0").rstrip(".")
+
+
+def format_fvg_message(event: FvgEvent) -> str:
+    bullish = event.direction is FvgDirection.BULLISH
+    icon = "🟢🐂" if bullish else "🔴🐻"
+    direction = "Бычий" if bullish else "Медвежий"
+    if event.event_type is FvgEventType.PRE_FVG:
+        title = f"{icon} Возможный {direction.lower()} FVG"
+        status = "Предварительный сигнал: свеча C ещё не закрыта"
+    else:
+        title = f"{icon} Подтверждённый {direction.lower()} FVG"
+        status = "Подтверждён закрытием свечи C"
+    time_text = event.candle_c_close_time.astimezone(UTC).strftime("%Y-%m-%d %H:%M UTC")
+    return (
+        f"{title}\n"
+        f"Инструмент: {event.symbol}\n"
+        f"Таймфрейм: {event.timeframe}\n"
+        f"Направление: {direction}\n"
+        f"Зона FVG: {_price(event.zone_low)} — {_price(event.zone_high)}\n"
+        f"Размер зоны: {_price(event.zone_size)}\n"
+        f"Цена сигнала: {_price(event.signal_price)}\n"
+        f"Время C: {time_text}\n"
+        f"Статус: {status}"
+    )
