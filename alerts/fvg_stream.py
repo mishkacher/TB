@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import ssl
+import time
 from datetime import datetime, timezone
 
 import aiohttp
@@ -17,7 +18,7 @@ UTC = timezone.utc
 
 
 class BitunixFvgStream:
-    URL = "wss://fapi.bitunix.com/public"
+    URL = "wss://fapi.bitunix.com/public/"
 
     def __init__(self, service, reconnect_min=1, reconnect_max=60):
         self.service = service
@@ -43,6 +44,12 @@ class BitunixFvgStream:
             finally:
                 self._delivery_queue.task_done()
 
+    @staticmethod
+    async def _ping(ws) -> None:
+        while True:
+            await ws.send_json({"op": "ping", "ping": int(time.time())})
+            await asyncio.sleep(3)
+
     def _enqueue(self, events) -> None:
         new_events = []
         for event in events:
@@ -64,7 +71,7 @@ class BitunixFvgStream:
                 ssl_context = ssl.create_default_context(cafile=certifi.where())
                 async with aiohttp.ClientSession(timeout=timeout) as session:
                     async with session.ws_connect(
-                        self.URL, heartbeat=20, ssl=ssl_context
+                        self.URL, ssl=ssl_context
                     ) as ws:
                         args = [
                             {"symbol": symbol, "ch": channel}
@@ -82,48 +89,53 @@ class BitunixFvgStream:
                             self._enqueue(events)
                         delay = self.reconnect_min
                         subscribed = set(symbols)
-                        while not self._stopping:
-                            current = set(self.service.settings.active_symbols())
-                            removed, added = subscribed - current, current - subscribed
-                            if removed:
-                                await ws.send_json({"op": "unsubscribe", "args": [
-                                    {"symbol": symbol, "ch": channel}
-                                    for symbol in sorted(removed)
-                                    for channel in ("market_kline_1min", "market_kline_15min")
-                                ]})
-                            if added:
-                                await ws.send_json({"op": "subscribe", "args": [
-                                    {"symbol": symbol, "ch": channel}
-                                    for symbol in sorted(added)
-                                    for channel in ("market_kline_1min", "market_kline_15min")
-                                ]})
-                                for symbol in sorted(added):
-                                    events = await asyncio.to_thread(self.service.recover, symbol)
-                                    self._enqueue(events)
-                            subscribed = current
-                            self.service.event_store.update_health(subscribed_symbols=sorted(subscribed))
-                            try:
-                                message = await ws.receive(timeout=5)
-                            except asyncio.TimeoutError:
-                                continue
-                            if message.type in {
-                                aiohttp.WSMsgType.CLOSE,
-                                aiohttp.WSMsgType.CLOSED,
-                                aiohttp.WSMsgType.CLOSING,
-                                aiohttp.WSMsgType.ERROR,
-                            }:
-                                raise ConnectionError("Bitunix WebSocket closed")
-                            if message.type != aiohttp.WSMsgType.TEXT:
-                                continue
-                            payload = json.loads(message.data)
-                            if payload.get("ch", "").startswith("market_kline_") and payload.get("data"):
+                        ping_task = asyncio.create_task(self._ping(ws))
+                        try:
+                            while not self._stopping:
+                                current = set(self.service.settings.active_symbols())
+                                removed, added = subscribed - current, current - subscribed
+                                if removed:
+                                    await ws.send_json({"op": "unsubscribe", "args": [
+                                        {"symbol": symbol, "ch": channel}
+                                        for symbol in sorted(removed)
+                                        for channel in ("market_kline_1min", "market_kline_15min")
+                                    ]})
+                                if added:
+                                    await ws.send_json({"op": "subscribe", "args": [
+                                        {"symbol": symbol, "ch": channel}
+                                        for symbol in sorted(added)
+                                        for channel in ("market_kline_1min", "market_kline_15min")
+                                    ]})
+                                    for symbol in sorted(added):
+                                        events = await asyncio.to_thread(self.service.recover, symbol)
+                                        self._enqueue(events)
+                                subscribed = current
+                                self.service.event_store.update_health(subscribed_symbols=sorted(subscribed))
                                 try:
-                                    events = self.service.ingest_ws(payload)
-                                except (ValueError, KeyError, TypeError) as error:
-                                    logger.warning("Invalid Bitunix FVG WebSocket candle: %s", error)
-                                    self.service.event_store.increment_health("invalid_candles")
-                                else:
-                                    self._enqueue(events)
+                                    message = await ws.receive(timeout=5)
+                                except asyncio.TimeoutError:
+                                    continue
+                                if message.type in {
+                                    aiohttp.WSMsgType.CLOSE,
+                                    aiohttp.WSMsgType.CLOSED,
+                                    aiohttp.WSMsgType.CLOSING,
+                                    aiohttp.WSMsgType.ERROR,
+                                }:
+                                    raise ConnectionError("Bitunix WebSocket closed")
+                                if message.type != aiohttp.WSMsgType.TEXT:
+                                    continue
+                                payload = json.loads(message.data)
+                                if payload.get("ch", "").startswith("market_kline_") and payload.get("data"):
+                                    try:
+                                        events = self.service.ingest_ws(payload)
+                                    except (ValueError, KeyError, TypeError) as error:
+                                        logger.warning("Invalid Bitunix FVG WebSocket candle: %s", error)
+                                        self.service.event_store.increment_health("invalid_candles")
+                                    else:
+                                        self._enqueue(events)
+                        finally:
+                            ping_task.cancel()
+                            await asyncio.gather(ping_task, return_exceptions=True)
             except asyncio.CancelledError:
                 raise
             except Exception as error:
