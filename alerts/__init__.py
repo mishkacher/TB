@@ -1,1 +1,1 @@
-"""Scheduled, decision-gated Telegram alerts."""
+"""FVG alert delivery and scheduling."""

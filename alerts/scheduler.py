@@ -1,80 +1,16 @@
-"""Telegram JobQueue integration for approved setup alerts."""
+"""Telegram JobQueue integration for FVG alerts."""
 
 import asyncio
 import logging
 from datetime import datetime, timezone
-from pathlib import Path
 
 import requests
 
-from alerts.alerts import AlertService
 from alerts.fvg_service import FvgAlertService
 from alerts.fvg_stream import BitunixFvgStream
-from config import ALLOWED_TELEGRAM_IDS
-from handlers.chart import build_chart
-from pipeline.live import run_live_candidate_pipeline
-from strategy_lab.report_store import ReportStore
-from strategy_lab.outcomes import ReportOutcomeProvider, StrategyReportRegistry
 
 
 logger = logging.getLogger(__name__)
-
-
-def load_strategy_validation(report_path="data/reports/btcusdt_15m_365d_v0_1_0.json"):
-    """Read the latest persisted validation verdict; missing data means reject."""
-    return ReportStore.load_validation(report_path)
-
-
-async def run_scheduled_alerts(context):
-    """Run one scan and notify only setups approved by all safety gates."""
-    candidates = await asyncio.to_thread(run_live_candidate_pipeline)
-    service = context.job.data["alert_service"]
-    reports = context.job.data["report_registry"]
-    approved = []
-    for candidate in candidates:
-        report_path = reports.path_for(candidate["symbol"])
-        validation = ReportStore.load_validation(report_path)
-        approved.extend(
-            service.approved_once(
-                [candidate],
-                validation,
-                outcome_provider=ReportOutcomeProvider(report_path),
-            )
-        )
-
-    for evaluation in approved:
-        candidate = evaluation["candidate"]
-        path = None
-        try:
-            path, _ = await asyncio.to_thread(build_chart, candidate["symbol"])
-            caption = (
-                f"✅ APPROVED SETUP\n{candidate['symbol']} | {candidate['signal']}\n"
-                f"Confluence: {candidate['confluence_score']}\n"
-                f"Probability: {evaluation['probability']['probability_percent']:.1f}%\n"
-                f"Confidence: {evaluation['confidence']['confidence_percent']:.1f}%"
-            )
-            for chat_id in ALLOWED_TELEGRAM_IDS:
-                with path.open("rb") as image:
-                    await context.bot.send_photo(chat_id=chat_id, photo=image, caption=caption)
-        finally:
-            if path is not None:
-                Path(path).unlink(missing_ok=True)
-
-
-def schedule_alerts(application, interval_minutes):
-    """Register the periodic scan once; it starts only when explicitly enabled."""
-    if application.job_queue is None:
-        raise RuntimeError("Telegram JobQueue is unavailable")
-    application.job_queue.run_repeating(
-        run_scheduled_alerts,
-        interval=interval_minutes * 60,
-        first=10,
-        name="approved-setup-alerts",
-        data={
-            "alert_service": AlertService(),
-            "report_registry": StrategyReportRegistry(),
-        },
-    )
 
 
 _FVG_SERVICE = None
