@@ -21,6 +21,7 @@ from handlers.fvg_filter_ui import (
     fvg_filter_callback,
     parse_filter_callback,
     parse_filter_range,
+    parse_size_minimum,
     receive_filter_range,
 )
 
@@ -149,6 +150,12 @@ class SizeFilterTests(unittest.TestCase):
         self.assertEqual(parse_filter_range("60000-"), ("60000", None))
         self.assertEqual(parse_filter_range("-90000"), (None, "90000"))
 
+    def test_size_filter_accepts_only_one_minimum_value(self):
+        self.assertEqual(parse_size_minimum("0,1%"), "0.1")
+        self.assertEqual(parse_size_minimum("10 $"), "10")
+        with self.assertRaisesRegex(ValueError, "одно минимальное значение"):
+            parse_size_minimum("0,1-5")
+
     def test_filter_callbacks_keep_action_kind_and_symbol_in_correct_fields(self):
         self.assertEqual(
             parse_filter_callback("fvg-filter:select:price:BTCUSDT"),
@@ -183,6 +190,16 @@ class SizeFilterTests(unittest.TestCase):
 
 
 class SettingsAndDedupTests(unittest.TestCase):
+    def test_size_filter_keeps_only_minimum_and_discards_maximum(self):
+        with TemporaryDirectory() as directory:
+            settings = FvgAlertSettings(f"{directory}/settings.json")
+            settings.set_size_filter(
+                1, "BTCUSDT", "0.1", "5", unit="PERCENT"
+            )
+            saved = settings.user(1)["symbols"]["BTCUSDT"]["size_filter"]
+            self.assertEqual(saved["min"], "0.1")
+            self.assertIsNone(saved["max"])
+
     def test_migrates_legacy_settings_and_preserves_pre_choice(self):
         with TemporaryDirectory() as directory:
             path = f"{directory}/settings.json"
@@ -286,7 +303,7 @@ class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
         with TemporaryDirectory() as directory:
             settings = FvgAlertSettings(f"{directory}/settings.json")
             settings.add_symbol(42, "BTCUSDT")
-            cases = (("price", "60000-90000"), ("size", "0,1-5"))
+            cases = (("price", "60000-90000"), ("size", "0,1"))
             for kind, text in cases:
                 message = SimpleNamespace(text=text, reply_text=AsyncMock())
                 update = SimpleNamespace(
@@ -305,6 +322,9 @@ class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 key = "price_filter" if kind == "price" else "size_filter"
                 saved = settings.user(42)["symbols"]["BTCUSDT"][key]
                 self.assertTrue(saved["enabled"])
+                if kind == "size":
+                    self.assertEqual(saved["min"], "0.1")
+                    self.assertIsNone(saved["max"])
                 self.assertIsNone(context.user_data.get(FILTER_INPUT_KEY))
                 self.assertIsNone(context.chat_data.get(FILTER_INPUT_KEY))
                 message.reply_text.assert_awaited_once()

@@ -206,16 +206,10 @@ class FvgAlertSettings:
             raise ValueError("Единица размера должна быть USD или PERCENT")
         try:
             min_value = Decimal(minimum) if minimum is not None else None
-            max_value = Decimal(maximum) if maximum is not None else None
         except InvalidOperation as error:
             raise ValueError("Некорректная граница размера FVG") from error
         if min_value is not None and (not min_value.is_finite() or min_value < 0):
             raise ValueError("Минимальный размер не может быть отрицательным")
-        if max_value is not None and (not max_value.is_finite() or max_value < 0):
-            raise ValueError("Максимальный размер не может быть отрицательным")
-        if min_value is not None and max_value is not None and min_value > max_value:
-            raise ValueError("Минимальный размер не может быть выше максимального")
-
         def mutate(data):
             user = data.setdefault("users", {}).setdefault(str(chat_id), _user_defaults())
             symbol_data = user.setdefault("symbols", {}).setdefault(
@@ -225,7 +219,7 @@ class FvgAlertSettings:
                 "enabled": bool(enabled),
                 "unit": unit,
                 "min": str(min_value) if min_value is not None else None,
-                "max": str(max_value) if max_value is not None else None,
+                "max": None,
                 "apply_to_pre_fvg": bool(apply_to_pre),
                 "apply_to_confirmed_fvg": bool(apply_to_confirmed),
                 "apply_to_bullish": bool(apply_to_bullish),
@@ -275,7 +269,7 @@ class FvgAlertSettings:
                 use_size_filter,
                 size.get("unit", "USD"),
                 _decimal(size.get("min")),
-                _decimal(size.get("max")),
+                None,
             ):
                 continue
             recipients.append(int(key))

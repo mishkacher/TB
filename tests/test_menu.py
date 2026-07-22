@@ -77,9 +77,7 @@ class MenuTests(unittest.TestCase):
             self.assertIn("✅ Цена", labels)
             self.assertIn("⏸️ 📏 Размер FVG", labels)
 
-            settings.set_size_filter(
-                42, "BTCUSDT", "0.1", "5", unit="PERCENT"
-            )
+            settings.set_size_filter(42, "BTCUSDT", "0.1", None, unit="PERCENT")
             labels = [
                 button.text
                 for row in build_fvg_settings_menu(42, settings).inline_keyboard

@@ -33,6 +33,17 @@ def parse_filter_range(text: str) -> tuple[str | None, str | None]:
     return minimum, maximum
 
 
+def parse_size_minimum(text: str) -> str:
+    value = text.strip().lower().replace(" ", "").replace(",", ".")
+    value = value.replace("$", "").replace("%", "")
+    if not re.fullmatch(r"\d+(?:\.\d+)?", value):
+        raise ValueError("Отправь одно минимальное значение, например 0,1 или 10.")
+    number = Decimal(value)
+    if not number.is_finite() or number < 0:
+        raise ValueError("Минимальное значение должно быть неотрицательным числом.")
+    return value
+
+
 def _filter(settings: FvgAlertSettings, chat_id: int, kind: str, symbol: str) -> dict:
     key = "price_filter" if kind == "price" else "size_filter"
     return settings.user(chat_id).get("symbols", {}).get(symbol, {}).get(key, {})
@@ -121,7 +132,10 @@ def build_filter_menu(chat_id: int, kind: str, symbol: str, settings=None):
             ),
         ])
     rows.extend([
-        [InlineKeyboardButton("✏️ Ввести диапазон", callback_data=f"fvg-filter:range:{kind}:{symbol}")],
+        [InlineKeyboardButton(
+            "✏️ Ввести минимум" if kind == "size" else "✏️ Ввести диапазон",
+            callback_data=f"fvg-filter:range:{kind}:{symbol}",
+        )],
         [InlineKeyboardButton("⬅️ Инструменты", callback_data=f"fvg-filter:open:{kind}")],
         [InlineKeyboardButton("⚙️ Настройки FVG", callback_data="menu:fvg-settings")],
     ])
@@ -136,10 +150,15 @@ def format_filter_text(chat_id: int, kind: str, symbol: str, settings=None) -> s
         suffix = "%" if config.get("unit") == "PERCENT" else "$"
     minimum = config.get("min") or "без минимума"
     maximum = config.get("max") or "без максимума"
+    value_text = (
+        f"Минимальный размер: {minimum}{suffix}"
+        if kind == "size"
+        else f"Диапазон: {minimum} — {maximum}"
+    )
     return (
         f"{'💰' if kind == 'price' else '📏'} Фильтр {_kind_name(kind)} · {symbol}\n\n"
         f"Статус: {'✅ включён' if config.get('enabled', False) else '⏸️ выключен'}\n"
-        f"Диапазон: {minimum}{suffix} — {maximum}{suffix}\n"
+        f"{value_text}\n"
         "Все остальные настройки меняются кнопками ниже."
     )
 
@@ -180,7 +199,14 @@ def _save_filter(settings, chat_id, kind, symbol, config, **changes):
     if kind == "price":
         settings.set_price_filter(*arguments, **options)
     else:
-        settings.set_size_filter(*arguments, unit=values.get("unit", "USD"), **options)
+        settings.set_size_filter(
+            chat_id,
+            symbol,
+            values.get("min"),
+            None,
+            unit=values.get("unit", "USD"),
+            **options,
+        )
 
 
 @authorized
@@ -218,11 +244,17 @@ async def fvg_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         state = {"kind": kind, "symbol": symbol}
         context.user_data[FILTER_INPUT_KEY] = state
         context.chat_data[FILTER_INPUT_KEY] = state
-        example = "60000-90000" if kind == "price" else ("0,1-0,5" if config.get("unit") == "PERCENT" else "10-50")
-        await query.message.reply_text(
-            f"Отправь только диапазон одним сообщением. Например: {example}\n"
-            "Без минимума: -90000 · без максимума: 60000- · отмена: /cancel"
-        )
+        if kind == "size":
+            example = "0,1" if config.get("unit") == "PERCENT" else "10"
+            await query.message.reply_text(
+                f"Отправь только минимальный размер одним числом. Например: {example}\n"
+                "Отмена: /cancel"
+            )
+        else:
+            await query.message.reply_text(
+                "Отправь только диапазон одним сообщением. Например: 60000-90000\n"
+                "Без минимума: -90000 · без максимума: 60000- · отмена: /cancel"
+            )
         return
     changes = {}
     toggle_keys = {
@@ -249,10 +281,13 @@ async def receive_filter_range(update: Update, context: ContextTypes.DEFAULT_TYP
     if not state:
         return
     try:
-        minimum, maximum = parse_filter_range(update.effective_message.text)
+        kind, symbol = state["kind"], state["symbol"]
+        if kind == "size":
+            minimum, maximum = parse_size_minimum(update.effective_message.text), None
+        else:
+            minimum, maximum = parse_filter_range(update.effective_message.text)
         settings = FvgAlertSettings()
         chat_id = update.effective_chat.id
-        kind, symbol = state["kind"], state["symbol"]
         config = _filter(settings, chat_id, kind, symbol)
         _save_filter(
             settings, chat_id, kind, symbol, config,
@@ -264,7 +299,11 @@ async def receive_filter_range(update: Update, context: ContextTypes.DEFAULT_TYP
     context.user_data.pop(FILTER_INPUT_KEY, None)
     context.chat_data.pop(FILTER_INPUT_KEY, None)
     await update.effective_message.reply_text(
-        "✅ Диапазон сохранён. Статус: фильтр включён.",
+        (
+            "✅ Минимальный размер сохранён. Статус: фильтр включён."
+            if kind == "size"
+            else "✅ Диапазон сохранён. Статус: фильтр включён."
+        ),
         reply_markup=build_filter_menu(chat_id, kind, symbol, settings),
     )
 
