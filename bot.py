@@ -1,20 +1,10 @@
 from telegram import BotCommand, MenuButtonCommands
-from telegram.ext import Application, CallbackQueryHandler, CommandHandler
+from telegram.ext import Application, CallbackQueryHandler, CommandHandler, TypeHandler
 
-from alerts.scheduler import schedule_alerts, schedule_fvg_alerts, start_fvg_stream, stop_fvg_stream
-from config import (
-    AUTO_ALERTS_ENABLED,
-    AUTO_ALERTS_INTERVAL_MINUTES,
-    MULTISCANNER_ENABLED,
-    TELEGRAM_TOKEN,
-)
+from alerts.scheduler import schedule_fvg_alerts, start_fvg_stream, stop_fvg_stream
+from config import TELEGRAM_TOKEN
 
 from handlers.start import start
-from handlers.market import btc
-from handlers.myid import myid
-from handlers.chart import chart
-from handlers.scan import scan
-from handlers.status import status
 from handlers.fvg_alert import (
     fvg_alert,
     fvg_pre_alert,
@@ -23,16 +13,19 @@ from handlers.fvg_alert import (
 )
 from handlers.fvg_filter_ui import build_fvg_filter_handlers
 from handlers.menu import menu, menu_callback
+from handlers.admin import admin, admin_callback
+from database.user_activity import UserActivityRegistry
 
 
 BOT_COMMANDS = (
-    BotCommand("menu", "Открыть панель управления"),
+    BotCommand("menu", "Настройки FVG"),
+    BotCommand("admin", "Админ-панель"),
     BotCommand("fvg_alert", "Включить или выключить FVG"),
     BotCommand("fvg_pre_alert", "Настроить пред-FVG T−3"),
+    BotCommand("fvg_symbol", "Настроить инструменты FVG"),
+    BotCommand("fvg_price", "Фильтр цены FVG"),
+    BotCommand("fvg_size", "Фильтр размера FVG"),
     BotCommand("fvg_stats", "Статистика FVG"),
-    BotCommand("status", "Состояние системы"),
-    BotCommand("btc", "BTC сейчас"),
-    BotCommand("chart", "График"),
 )
 
 
@@ -46,12 +39,13 @@ async def post_init(application):
     await configure_bot_interface(application)
     schedule_fvg_alerts(application)
     await start_fvg_stream(application)
-    if AUTO_ALERTS_ENABLED:
-        schedule_alerts(application, AUTO_ALERTS_INTERVAL_MINUTES)
-        print(
-            "Авто-проверка одобренных сетапов включена: "
-            f"каждые {AUTO_ALERTS_INTERVAL_MINUTES} мин."
-        )
+
+
+async def track_user_activity(update, context):
+    """Record every incoming user action before command handlers run."""
+    user = update.effective_user
+    if user is not None:
+        UserActivityRegistry().touch(user)
 
 
 def main():
@@ -67,28 +61,11 @@ def main():
         .build()
     )
 
-    # Команды Telegram
+    app.add_handler(TypeHandler(object, track_user_activity), group=-1)
+
+    # FVG notifications, settings, statistics, and administration only.
     app.add_handler(
         CommandHandler("start", start)
-    )
-
-    app.add_handler(
-        CommandHandler("myid", myid)
-    )
-
-    app.add_handler(
-        CommandHandler("btc", btc)
-    )
-
-    app.add_handler(
-        CommandHandler("chart", chart)
-    )
-
-    if MULTISCANNER_ENABLED:
-        app.add_handler(CommandHandler("scan", scan))
-
-    app.add_handler(
-        CommandHandler("status", status)
     )
 
     app.add_handler(
@@ -102,6 +79,8 @@ def main():
 
     app.add_handler(CommandHandler("menu", menu))
     app.add_handler(CallbackQueryHandler(menu_callback, pattern=r"^menu:"))
+    app.add_handler(CommandHandler("admin", admin))
+    app.add_handler(CallbackQueryHandler(admin_callback, pattern=r"^admin:"))
 
     print("Trading Assistant запущен 🚀")
 

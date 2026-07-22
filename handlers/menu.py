@@ -8,16 +8,11 @@ from telegram.ext import ContextTypes
 from alerts.fvg_models import FvgDirection
 from alerts.fvg_store import FvgAlertSettings
 from handlers.auth import authorized
-from handlers.chart import send_chart
-from handlers.market import send_btc
-from handlers.scan import send_scan
-from handlers.status import send_status
 from handlers.fvg_alert import (
     build_fvg_stats_period_menu,
     format_fvg_stats,
     send_fvg_stats,
 )
-from config import MULTISCANNER_ENABLED
 
 
 @dataclass(frozen=True)
@@ -26,14 +21,7 @@ class MenuAction:
     label: str
 
 
-# Add a new user-facing feature here once: it is rendered in the main menu and
-# dispatched below, rather than maintaining a separate list of buttons.
-MAIN_ACTIONS = tuple(action for action in (
-    MenuAction("scan", "🔎 Сканер рынка"),
-    MenuAction("btc", "₿ BTC сейчас"),
-    MenuAction("chart", "📈 График BTC"),
-    MenuAction("status", "📊 Статус системы"),
-) if MULTISCANNER_ENABLED or action.key != "scan")
+MAIN_ACTIONS: tuple[MenuAction, ...] = ()
 
 
 def build_main_menu(chat_id, settings=None):
@@ -86,19 +74,9 @@ def build_fvg_settings_menu(chat_id, settings=None):
     ])
 
 
-def build_chart_menu():
-    return InlineKeyboardMarkup(
-        [[
-            InlineKeyboardButton("15 минут", callback_data="menu:chart:15m"),
-            InlineKeyboardButton("1 час", callback_data="menu:chart:1h"),
-            InlineKeyboardButton("4 часа", callback_data="menu:chart:4h"),
-        ]]
-    )
-
-
 async def show_menu(message, chat_id):
     await message.reply_text(
-        "Панель управления Trading Assistant:",
+        "Панель управления FVG:",
         reply_markup=build_main_menu(chat_id),
     )
 
@@ -118,17 +96,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = query.message
     chat_id = update.effective_chat.id
 
-    if action == "scan" and MULTISCANNER_ENABLED:
-        await send_scan(message)
-    elif action == "btc":
-        await send_btc(message)
-    elif action == "status":
-        await send_status(message)
-    elif action == "chart":
-        await message.reply_text("Выбери таймфрейм BTCUSDT:", reply_markup=build_chart_menu())
-    elif action.startswith("chart:"):
-        await send_chart(message, "BTCUSDT", action.split(":", 1)[1])
-    elif action == "fvg-settings":
+    if action == "fvg-settings":
         settings = FvgAlertSettings()
         await message.edit_text("Настройки применяются отдельно для твоего Telegram ID.", reply_markup=build_fvg_settings_menu(chat_id, settings))
     elif action == "fvg-toggle":
@@ -159,7 +127,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "После добавления настрой «💰 Фильтр цены» и «📏 Размер FVG»."
         )
     elif action == "fvg-back":
-        await message.edit_text("Панель управления Trading Assistant:", reply_markup=build_main_menu(chat_id))
+        await message.edit_text("Панель управления FVG:", reply_markup=build_main_menu(chat_id))
     elif action == "fvg-stats":
         await send_fvg_stats(message)
     elif action.startswith("fvg-stats:"):

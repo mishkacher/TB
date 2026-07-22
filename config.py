@@ -7,11 +7,6 @@ TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 
 BITUNIX_API_KEY = os.getenv("BITUNIX_API_KEY")
 BITUNIX_SECRET = os.getenv("BITUNIX_SECRET")
-AUTO_ALERTS_ENABLED = os.getenv("AUTO_ALERTS_ENABLED", "false").lower() == "true"
-AUTO_ALERTS_INTERVAL_MINUTES = int(os.getenv("AUTO_ALERTS_INTERVAL_MINUTES", "15"))
-# The multi-symbol scanner is intentionally paused. Keep its implementation so
-# it can be restored later by changing this single feature flag.
-MULTISCANNER_ENABLED = False
 
 
 def parse_telegram_ids(value):
