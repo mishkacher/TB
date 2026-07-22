@@ -41,6 +41,19 @@ def _kind_name(kind: str) -> str:
     return "цены" if kind == "price" else "размера"
 
 
+def parse_filter_callback(data: str) -> tuple[str, str, str | None]:
+    parts = data.split(":")
+    if len(parts) not in {3, 4} or parts[0] != "fvg-filter":
+        raise ValueError("Некорректная кнопка фильтра FVG")
+    _, action, kind, *tail = parts
+    if kind not in {"price", "size"}:
+        raise ValueError("Неизвестный тип фильтра FVG")
+    symbol = tail[0] if tail else None
+    if action != "open" and not symbol:
+        raise ValueError("В кнопке фильтра не указан инструмент")
+    return action, kind, symbol
+
+
 def build_filter_symbol_menu(chat_id: int, kind: str, settings=None):
     settings = settings or FvgAlertSettings()
     symbols = settings.user(chat_id).get("symbols", {})
@@ -175,13 +188,18 @@ async def fvg_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         context.user_data.pop(FILTER_INPUT_KEY, None)
         await _show_picker(query.message, update.effective_chat.id, kind)
         return
-    _, _, action, kind, *tail = query.data.split(":")
+    try:
+        action, kind, symbol = parse_filter_callback(query.data)
+    except ValueError:
+        await query.message.reply_text(
+            "Эта кнопка устарела. Открой настройки FVG ещё раз."
+        )
+        return
     chat_id = update.effective_chat.id
     context.user_data.pop(FILTER_INPUT_KEY, None)
     if action == "open":
         await _show_picker(query.message, chat_id, kind, edit=True)
         return
-    symbol = tail[0]
     settings = FvgAlertSettings()
     config = _filter(settings, chat_id, kind, symbol)
     if action == "select":

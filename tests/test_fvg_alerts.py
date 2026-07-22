@@ -2,6 +2,8 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, patch
 
 from alerts.fvg_detector import (
     FvgDetector,
@@ -14,7 +16,11 @@ from alerts.fvg_models import Candle, FvgDirection, FvgEventType
 from alerts.fvg_service import FvgAlertService, format_fvg_message
 from alerts.fvg_store import FvgAlertSettings, FvgEventStore
 from handlers.fvg_alert import parse_price_filter_template, parse_size_filter_template
-from handlers.fvg_filter_ui import parse_filter_range
+from handlers.fvg_filter_ui import (
+    fvg_filter_callback,
+    parse_filter_callback,
+    parse_filter_range,
+)
 
 
 UTC = timezone.utc
@@ -122,11 +128,6 @@ class SizeFilterTests(unittest.TestCase):
         self.assertEqual(
             fvg_size_value(Decimal("5"), Decimal("100"), "USD"), Decimal("5")
         )
-
-    def test_compact_range_accepts_closed_and_open_boundaries(self):
-        self.assertEqual(parse_filter_range("0,1 - 0,5%"), ("0.1", "0.5"))
-        self.assertEqual(parse_filter_range("60000-"), ("60000", None))
-        self.assertEqual(parse_filter_range("-90000"), (None, "90000"))
         self.assertEqual(
             fvg_size_value(Decimal("5"), Decimal("100"), "PERCENT"), Decimal("5")
         )
@@ -139,6 +140,25 @@ class SizeFilterTests(unittest.TestCase):
             size_allowed(
                 Decimal("4.99"), Decimal("100"), True, "USD", Decimal("5"), None
             )
+        )
+
+    def test_compact_range_accepts_closed_and_open_boundaries(self):
+        self.assertEqual(parse_filter_range("0,1 - 0,5%"), ("0.1", "0.5"))
+        self.assertEqual(parse_filter_range("60000-"), ("60000", None))
+        self.assertEqual(parse_filter_range("-90000"), (None, "90000"))
+
+    def test_filter_callbacks_keep_action_kind_and_symbol_in_correct_fields(self):
+        self.assertEqual(
+            parse_filter_callback("fvg-filter:select:price:BTCUSDT"),
+            ("select", "price", "BTCUSDT"),
+        )
+        self.assertEqual(
+            parse_filter_callback("fvg-filter:select:size:BTCUSDT"),
+            ("select", "size", "BTCUSDT"),
+        )
+        self.assertEqual(
+            parse_filter_callback("fvg-filter:open:price"),
+            ("open", "price", None),
         )
 
     def test_parses_percent_template_and_disable_template(self):
@@ -260,6 +280,34 @@ class SettingsAndDedupTests(unittest.TestCase):
 
 
 class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_price_and_size_symbol_buttons_open_filter_screen(self):
+        for kind in ("price", "size"):
+            message = SimpleNamespace(edit_text=AsyncMock(), reply_text=AsyncMock())
+            query = SimpleNamespace(
+                data=f"fvg-filter:select:{kind}:BTCUSDT",
+                answer=AsyncMock(),
+                message=message,
+            )
+            update = SimpleNamespace(
+                callback_query=query,
+                effective_chat=SimpleNamespace(id=42),
+            )
+            context = SimpleNamespace(user_data={})
+            settings = SimpleNamespace(
+                user=lambda chat_id: {
+                    "symbols": {
+                        "BTCUSDT": {
+                            "price_filter": {"enabled": False},
+                            "size_filter": {"enabled": False, "unit": "USD"},
+                        }
+                    }
+                }
+            )
+            with patch("handlers.fvg_filter_ui.FvgAlertSettings", return_value=settings):
+                await fvg_filter_callback(update, context)
+            query.answer.assert_awaited_once()
+            message.edit_text.assert_awaited_once()
+
     async def test_two_users_receive_once_and_restart_does_not_duplicate(self):
         class Bot:
             def __init__(self):
