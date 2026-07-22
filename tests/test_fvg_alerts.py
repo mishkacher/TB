@@ -17,9 +17,11 @@ from alerts.fvg_service import FvgAlertService, format_fvg_message
 from alerts.fvg_store import FvgAlertSettings, FvgEventStore
 from handlers.fvg_alert import parse_price_filter_template, parse_size_filter_template
 from handlers.fvg_filter_ui import (
+    FILTER_INPUT_KEY,
     fvg_filter_callback,
     parse_filter_callback,
     parse_filter_range,
+    receive_filter_range,
 )
 
 
@@ -280,6 +282,33 @@ class SettingsAndDedupTests(unittest.TestCase):
 
 
 class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
+    async def test_range_input_persists_and_enables_both_filter_kinds(self):
+        with TemporaryDirectory() as directory:
+            settings = FvgAlertSettings(f"{directory}/settings.json")
+            settings.add_symbol(42, "BTCUSDT")
+            cases = (("price", "60000-90000"), ("size", "0,1-5"))
+            for kind, text in cases:
+                message = SimpleNamespace(text=text, reply_text=AsyncMock())
+                update = SimpleNamespace(
+                    effective_message=message,
+                    effective_chat=SimpleNamespace(id=42),
+                )
+                state = {"kind": kind, "symbol": "BTCUSDT"}
+                context = SimpleNamespace(
+                    user_data={FILTER_INPUT_KEY: state},
+                    chat_data={FILTER_INPUT_KEY: state},
+                )
+                with patch(
+                    "handlers.fvg_filter_ui.FvgAlertSettings", return_value=settings
+                ):
+                    await receive_filter_range(update, context)
+                key = "price_filter" if kind == "price" else "size_filter"
+                saved = settings.user(42)["symbols"]["BTCUSDT"][key]
+                self.assertTrue(saved["enabled"])
+                self.assertIsNone(context.user_data.get(FILTER_INPUT_KEY))
+                self.assertIsNone(context.chat_data.get(FILTER_INPUT_KEY))
+                message.reply_text.assert_awaited_once()
+
     async def test_price_and_size_symbol_buttons_open_filter_screen(self):
         for kind in ("price", "size"):
             message = SimpleNamespace(edit_text=AsyncMock(), reply_text=AsyncMock())
@@ -292,7 +321,7 @@ class DeliveryIntegrationTests(unittest.IsolatedAsyncioTestCase):
                 callback_query=query,
                 effective_chat=SimpleNamespace(id=42),
             )
-            context = SimpleNamespace(user_data={})
+            context = SimpleNamespace(user_data={}, chat_data={})
             settings = SimpleNamespace(
                 user=lambda chat_id: {
                     "symbols": {

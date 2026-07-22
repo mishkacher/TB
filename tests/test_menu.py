@@ -1,8 +1,10 @@
 import unittest
+from tempfile import TemporaryDirectory
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 from bot import BOT_COMMANDS, configure_bot_interface
+from alerts.fvg_store import FvgAlertSettings
 from handlers.auth import PUBLIC_ACCESS_ENABLED, authorized
 from handlers.fvg_alert import build_fvg_stats_period_menu
 from handlers.menu import build_chart_menu, build_fvg_settings_menu, build_main_menu
@@ -60,6 +62,31 @@ class MenuTests(unittest.TestCase):
         labels = [button.text for row in rows for button in row]
         self.assertIn("✅ Цена", labels)
         self.assertIn("⏸️ 📏 Размер FVG", labels)
+
+    def test_real_price_and_size_changes_refresh_settings_menu_status(self):
+        with TemporaryDirectory() as directory:
+            settings = FvgAlertSettings(f"{directory}/settings.json")
+            settings.add_symbol(42, "BTCUSDT")
+
+            settings.set_price_filter(42, "BTCUSDT", "60000", "90000")
+            labels = [
+                button.text
+                for row in build_fvg_settings_menu(42, settings).inline_keyboard
+                for button in row
+            ]
+            self.assertIn("✅ Цена", labels)
+            self.assertIn("⏸️ 📏 Размер FVG", labels)
+
+            settings.set_size_filter(
+                42, "BTCUSDT", "0.1", "5", unit="PERCENT"
+            )
+            labels = [
+                button.text
+                for row in build_fvg_settings_menu(42, settings).inline_keyboard
+                for button in row
+            ]
+            self.assertIn("✅ Цена", labels)
+            self.assertIn("✅ 📏 Размер FVG", labels)
 
     def test_fvg_statistics_period_menu_contains_all_periods(self):
         buttons = build_fvg_stats_period_menu(30).inline_keyboard[0]

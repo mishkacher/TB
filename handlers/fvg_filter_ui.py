@@ -15,6 +15,7 @@ FILTER_INPUT_KEY = "waiting_fvg_filter_range"
 
 def parse_filter_range(text: str) -> tuple[str | None, str | None]:
     value = text.strip().lower().replace(" ", "").replace(",", ".")
+    value = value.removeprefix("от").replace("до", "-")
     value = value.replace("$", "").replace("%", "").replace("—", "-").replace("–", "-")
     if value in {"нет", "без", "-"}:
         return None, None
@@ -122,6 +123,7 @@ def build_filter_menu(chat_id: int, kind: str, symbol: str, settings=None):
     rows.extend([
         [InlineKeyboardButton("✏️ Ввести диапазон", callback_data=f"fvg-filter:range:{kind}:{symbol}")],
         [InlineKeyboardButton("⬅️ Инструменты", callback_data=f"fvg-filter:open:{kind}")],
+        [InlineKeyboardButton("⚙️ Настройки FVG", callback_data="menu:fvg-settings")],
     ])
     return InlineKeyboardMarkup(rows)
 
@@ -136,6 +138,7 @@ def format_filter_text(chat_id: int, kind: str, symbol: str, settings=None) -> s
     maximum = config.get("max") or "без максимума"
     return (
         f"{'💰' if kind == 'price' else '📏'} Фильтр {_kind_name(kind)} · {symbol}\n\n"
+        f"Статус: {'✅ включён' if config.get('enabled', False) else '⏸️ выключен'}\n"
         f"Диапазон: {minimum}{suffix} — {maximum}{suffix}\n"
         "Все остальные настройки меняются кнопками ниже."
     )
@@ -155,6 +158,7 @@ async def _show_picker(message, chat_id: int, kind: str, *, edit=False):
 async def fvg_filter_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     kind = "size" if update.effective_message.text.startswith("/fvg_size") else "price"
     context.user_data.pop(FILTER_INPUT_KEY, None)
+    context.chat_data.pop(FILTER_INPUT_KEY, None)
     await _show_picker(update.effective_message, update.effective_chat.id, kind)
 
 
@@ -186,7 +190,8 @@ async def fvg_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
     if query.data.startswith("menu:fvg-"):
         kind = query.data.removeprefix("menu:fvg-")
         context.user_data.pop(FILTER_INPUT_KEY, None)
-        await _show_picker(query.message, update.effective_chat.id, kind)
+        context.chat_data.pop(FILTER_INPUT_KEY, None)
+        await _show_picker(query.message, update.effective_chat.id, kind, edit=True)
         return
     try:
         action, kind, symbol = parse_filter_callback(query.data)
@@ -197,6 +202,7 @@ async def fvg_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         return
     chat_id = update.effective_chat.id
     context.user_data.pop(FILTER_INPUT_KEY, None)
+    context.chat_data.pop(FILTER_INPUT_KEY, None)
     if action == "open":
         await _show_picker(query.message, chat_id, kind, edit=True)
         return
@@ -209,7 +215,9 @@ async def fvg_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
         )
         return
     if action == "range":
-        context.user_data[FILTER_INPUT_KEY] = {"kind": kind, "symbol": symbol}
+        state = {"kind": kind, "symbol": symbol}
+        context.user_data[FILTER_INPUT_KEY] = state
+        context.chat_data[FILTER_INPUT_KEY] = state
         example = "60000-90000" if kind == "price" else ("0,1-0,5" if config.get("unit") == "PERCENT" else "10-50")
         await query.message.reply_text(
             f"Отправь только диапазон одним сообщением. Например: {example}\n"
@@ -235,7 +243,9 @@ async def fvg_filter_callback(update: Update, context: ContextTypes.DEFAULT_TYPE
 
 @authorized
 async def receive_filter_range(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    state = context.user_data.get(FILTER_INPUT_KEY)
+    state = context.user_data.get(FILTER_INPUT_KEY) or context.chat_data.get(
+        FILTER_INPUT_KEY
+    )
     if not state:
         return
     try:
@@ -252,8 +262,9 @@ async def receive_filter_range(update: Update, context: ContextTypes.DEFAULT_TYP
         await update.effective_message.reply_text(f"Не получилось: {error}\nПопробуй ещё раз или /cancel.")
         return
     context.user_data.pop(FILTER_INPUT_KEY, None)
+    context.chat_data.pop(FILTER_INPUT_KEY, None)
     await update.effective_message.reply_text(
-        "✅ Диапазон сохранён, фильтр включён.",
+        "✅ Диапазон сохранён. Статус: фильтр включён.",
         reply_markup=build_filter_menu(chat_id, kind, symbol, settings),
     )
 
@@ -261,6 +272,7 @@ async def receive_filter_range(update: Update, context: ContextTypes.DEFAULT_TYP
 @authorized
 async def cancel_filter_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop(FILTER_INPUT_KEY, None)
+    context.chat_data.pop(FILTER_INPUT_KEY, None)
     await update.effective_message.reply_text("Ввод диапазона отменён.")
 
 

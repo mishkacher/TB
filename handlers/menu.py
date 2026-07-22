@@ -129,7 +129,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await send_chart(message, "BTCUSDT", action.split(":", 1)[1])
     elif action == "fvg-settings":
         settings = FvgAlertSettings()
-        await message.reply_text("Настройки применяются отдельно для твоего Telegram ID.", reply_markup=build_fvg_settings_menu(chat_id, settings))
+        await message.edit_text("Настройки применяются отдельно для твоего Telegram ID.", reply_markup=build_fvg_settings_menu(chat_id, settings))
     elif action == "fvg-toggle":
         settings = FvgAlertSettings()
         enabled = not settings.is_enabled(chat_id)
