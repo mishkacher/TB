@@ -68,6 +68,7 @@ def build_fvg_settings_menu(chat_id, settings=None):
             InlineKeyboardButton("➕ Инструменты", callback_data="menu:fvg-symbol-help"),
             InlineKeyboardButton("💰 Фильтр цены", callback_data="menu:fvg-price"),
         ],
+        [InlineKeyboardButton("📏 Размер FVG", callback_data="menu:fvg-size")],
         [InlineKeyboardButton("⬅️ Главное меню", callback_data="menu:fvg-back")],
     ])
 
@@ -142,7 +143,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     elif action == "fvg-symbol-help":
         await message.reply_text(
             "Инструменты: /fvg_symbol add ETHUSDT или /fvg_symbol remove ETHUSDT\n"
-            "После добавления нажми кнопку «💰 Фильтр цены»."
+            "После добавления настрой «💰 Фильтр цены» и «📏 Размер FVG»."
         )
     elif action == "fvg-back":
         await message.edit_text("Панель управления Trading Assistant:", reply_markup=build_main_menu(chat_id))

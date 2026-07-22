@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
-from alerts.fvg_detector import price_allowed
+from alerts.fvg_detector import price_allowed, size_allowed
 from alerts.fvg_models import FvgDirection, FvgEvent, FvgEventType
 
 
@@ -50,6 +50,14 @@ def _symbol_defaults() -> dict:
         "enabled": True,
         "price_filter": {
             "enabled": False,
+            "min": None,
+            "max": None,
+            "apply_to_pre_fvg": True,
+            "apply_to_confirmed_fvg": True,
+        },
+        "size_filter": {
+            "enabled": False,
+            "unit": "USD",
             "min": None,
             "max": None,
             "apply_to_pre_fvg": True,
@@ -173,6 +181,48 @@ class FvgAlertSettings:
             }
         self._transaction(mutate)
 
+    def set_size_filter(
+        self,
+        chat_id: int,
+        symbol: str,
+        minimum: str | None,
+        maximum: str | None,
+        unit: str = "USD",
+        enabled: bool = True,
+        apply_to_pre: bool = True,
+        apply_to_confirmed: bool = True,
+    ) -> None:
+        unit = unit.upper()
+        if unit not in {"USD", "PERCENT"}:
+            raise ValueError("Единица размера должна быть USD или PERCENT")
+        try:
+            min_value = Decimal(minimum) if minimum is not None else None
+            max_value = Decimal(maximum) if maximum is not None else None
+        except InvalidOperation as error:
+            raise ValueError("Некорректная граница размера FVG") from error
+        if min_value is not None and (not min_value.is_finite() or min_value < 0):
+            raise ValueError("Минимальный размер не может быть отрицательным")
+        if max_value is not None and (not max_value.is_finite() or max_value < 0):
+            raise ValueError("Максимальный размер не может быть отрицательным")
+        if min_value is not None and max_value is not None and min_value > max_value:
+            raise ValueError("Минимальный размер не может быть выше максимального")
+
+        def mutate(data):
+            user = data.setdefault("users", {}).setdefault(str(chat_id), _user_defaults())
+            symbol_data = user.setdefault("symbols", {}).setdefault(
+                symbol.upper(), _symbol_defaults()
+            )
+            symbol_data["size_filter"] = {
+                "enabled": bool(enabled),
+                "unit": unit,
+                "min": str(min_value) if min_value is not None else None,
+                "max": str(max_value) if max_value is not None else None,
+                "apply_to_pre_fvg": bool(apply_to_pre),
+                "apply_to_confirmed_fvg": bool(apply_to_confirmed),
+            }
+
+        self._transaction(mutate)
+
     def active_symbols(self) -> frozenset[str]:
         symbols: set[str] = set()
         for user in self._read().get("users", {}).values():
@@ -198,6 +248,17 @@ class FvgAlertSettings:
             apply_key = "apply_to_pre_fvg" if event.event_type is FvgEventType.PRE_FVG else "apply_to_confirmed_fvg"
             use_filter = price.get("enabled", False) and price.get(apply_key, True)
             if not price_allowed(event.signal_price, use_filter, _decimal(price.get("min")), _decimal(price.get("max"))):
+                continue
+            size = symbol_cfg.get("size_filter", {})
+            use_size_filter = size.get("enabled", False) and size.get(apply_key, True)
+            if not size_allowed(
+                event.zone_size,
+                event.signal_price,
+                use_size_filter,
+                size.get("unit", "USD"),
+                _decimal(size.get("min")),
+                _decimal(size.get("max")),
+            ):
                 continue
             recipients.append(int(key))
         return recipients

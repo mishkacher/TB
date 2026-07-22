@@ -18,6 +18,7 @@ from handlers.auth import authorized
 
 
 WAITING_PRICE_TEMPLATE_KEY = "waiting_fvg_price_template"
+WAITING_SIZE_TEMPLATE_KEY = "waiting_fvg_size_template"
 PRICE_FILTER_TEMPLATE = (
     "💰 Настройка фильтра цены FVG\n\n"
     "Скопируй шаблон ниже, замени значения и отправь его одним сообщением:\n\n"
@@ -30,6 +31,23 @@ PRICE_FILTER_TEMPLATE = (
     "Чтобы отключить фильтр:\n"
     "Инструмент: BTCUSDT\n"
     "Фильтр: выключить\n\n"
+    "Отмена: /cancel"
+)
+SIZE_FILTER_TEMPLATE = (
+    "📏 Настройка размера FVG\n\n"
+    "Скопируй шаблон, замени значения и отправь одним сообщением:\n\n"
+    "Инструмент: BTCUSDT\n"
+    "Единица размера: проценты\n"
+    "Минимальный размер: 0,10\n"
+    "Максимальный размер: нет\n"
+    "Применять к: оба\n\n"
+    "Единица размера: «проценты» или «доллары».\n"
+    "Процент считается от цены сигнала FVG.\n"
+    "Вместо границы можно написать «нет».\n"
+    "Применять к: оба, пред-FVG или подтверждённые.\n\n"
+    "Чтобы отключить фильтр:\n"
+    "Инструмент: BTCUSDT\n"
+    "Фильтр размера: выключить\n\n"
     "Отмена: /cancel"
 )
 
@@ -79,8 +97,69 @@ def parse_price_filter_template(text: str) -> dict:
     }
 
 
+def parse_size_filter_template(text: str) -> dict:
+    fields = {}
+    for raw_line in text.splitlines():
+        if ":" not in raw_line:
+            continue
+        key, value = raw_line.split(":", 1)
+        fields[key.strip().lower().replace("ё", "е")] = value.strip()
+
+    symbol = fields.get("инструмент", "").upper().replace("/", "")
+    if not re.fullmatch(r"[A-Z0-9]{5,20}", symbol):
+        raise ValueError("Укажи инструмент, например BTCUSDT.")
+    disabled = fields.get("фильтр размера", "").lower() in {
+        "выключить", "выкл", "off",
+    }
+    if disabled:
+        return {"symbol": symbol, "enabled": False}
+
+    unit_label = fields.get("единица размера", "").lower()
+    unit_aliases = {
+        "проценты": "PERCENT", "процент": "PERCENT", "%": "PERCENT",
+        "percent": "PERCENT", "доллары": "USD", "доллар": "USD",
+        "usd": "USD", "$": "USD", "баксы": "USD",
+    }
+    unit = unit_aliases.get(unit_label)
+    if unit is None:
+        raise ValueError("В поле «Единица размера» напиши: проценты или доллары.")
+
+    def boundary(name):
+        value = fields.get(name)
+        if value is None:
+            raise ValueError(f"Не заполнено поле «{name.capitalize()}».")
+        if value.lower() in {"нет", "без", "-", "не ограничивать"}:
+            return None
+        return value.replace(" ", "").replace(",", ".").replace("%", "").replace("$", "")
+
+    minimum = boundary("минимальный размер")
+    maximum = boundary("максимальный размер")
+    scope_label = fields.get("применять к", "").lower().replace("ё", "е")
+    aliases = {
+        "оба": "both", "обоим": "both", "both": "both",
+        "пред-fvg": "pre", "пред fvg": "pre", "пред": "pre", "pre": "pre",
+        "подтвержденные": "confirmed", "подтвержденный": "confirmed",
+        "confirmed": "confirmed",
+    }
+    scope = aliases.get(scope_label)
+    if scope is None:
+        raise ValueError("В поле «Применять к» напиши: оба, пред-FVG или подтверждённые.")
+    return {
+        "symbol": symbol,
+        "enabled": True,
+        "unit": unit,
+        "minimum": minimum,
+        "maximum": maximum,
+        "scope": scope,
+    }
+
+
 async def send_price_filter_template(message):
     await message.reply_text(PRICE_FILTER_TEMPLATE)
+
+
+async def send_size_filter_template(message):
+    await message.reply_text(SIZE_FILTER_TEMPLATE)
 
 
 @authorized
@@ -154,6 +233,7 @@ async def fvg_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
     else:
         await send_price_filter_template(update.effective_message)
+        context.user_data.pop(WAITING_SIZE_TEMPLATE_KEY, None)
         context.user_data[WAITING_PRICE_TEMPLATE_KEY] = True
         return
     await update.effective_message.reply_text(format_fvg_settings(settings.user(chat_id)))
@@ -163,6 +243,7 @@ async def fvg_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def fvg_price_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.callback_query.answer()
     await send_price_filter_template(update.callback_query.message)
+    context.user_data.pop(WAITING_SIZE_TEMPLATE_KEY, None)
     context.user_data[WAITING_PRICE_TEMPLATE_KEY] = True
 
 
@@ -218,17 +299,97 @@ async def receive_price_filter_template(update: Update, context: ContextTypes.DE
 @authorized
 async def cancel_price_filter(update: Update, context: ContextTypes.DEFAULT_TYPE):
     context.user_data.pop(WAITING_PRICE_TEMPLATE_KEY, None)
+    context.user_data.pop(WAITING_SIZE_TEMPLATE_KEY, None)
     await update.effective_message.reply_text("Настройка фильтра отменена.")
+
+
+@authorized
+async def fvg_size(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await send_size_filter_template(update.effective_message)
+    context.user_data.pop(WAITING_PRICE_TEMPLATE_KEY, None)
+    context.user_data[WAITING_SIZE_TEMPLATE_KEY] = True
+
+
+@authorized
+async def fvg_size_button(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.callback_query.answer()
+    await send_size_filter_template(update.callback_query.message)
+    context.user_data.pop(WAITING_PRICE_TEMPLATE_KEY, None)
+    context.user_data[WAITING_SIZE_TEMPLATE_KEY] = True
+
+
+@authorized
+async def receive_size_filter_template(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.user_data.get(WAITING_SIZE_TEMPLATE_KEY):
+        return
+    try:
+        values = parse_size_filter_template(update.effective_message.text)
+        settings = FvgAlertSettings()
+        chat_id = update.effective_chat.id
+        symbol = values["symbol"]
+        if symbol not in settings.user(chat_id).get("symbols", {}):
+            valid = await asyncio.to_thread(BitunixClient().is_open_symbol, symbol)
+            if not valid:
+                raise ValueError(f"Инструмент {symbol} не найден на Bitunix.")
+            settings.add_symbol(chat_id, symbol)
+        if not values["enabled"]:
+            settings.set_size_filter(
+                chat_id, symbol, None, None, enabled=False
+            )
+            result = f"✅ Фильтр размера FVG для {symbol} отключён."
+        else:
+            scope = values["scope"]
+            settings.set_size_filter(
+                chat_id,
+                symbol,
+                values["minimum"],
+                values["maximum"],
+                unit=values["unit"],
+                enabled=True,
+                apply_to_pre=scope in {"pre", "both"},
+                apply_to_confirmed=scope in {"confirmed", "both"},
+            )
+            suffix = "%" if values["unit"] == "PERCENT" else "$"
+            scope_text = {
+                "both": "пред-FVG и подтверждённых FVG",
+                "pre": "пред-FVG",
+                "confirmed": "подтверждённых FVG",
+            }[scope]
+            result = (
+                f"✅ Фильтр размера FVG сохранён\n"
+                f"Инструмент: {symbol}\n"
+                f"Единица: {'проценты' if suffix == '%' else 'доллары'}\n"
+                f"Диапазон: {values['minimum'] or 'без минимума'}{suffix} — "
+                f"{values['maximum'] or 'без максимума'}{suffix}\n"
+                f"Применяется к: {scope_text}"
+            )
+    except (ValueError, TypeError) as error:
+        await update.effective_message.reply_text(
+            f"Не получилось сохранить: {error}\n\n"
+            "Поправь шаблон и отправь ещё раз или нажми /cancel."
+        )
+        return
+    context.user_data.pop(WAITING_SIZE_TEMPLATE_KEY, None)
+    await update.effective_message.reply_text(result)
+
+
+async def receive_fvg_filter_template(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if context.user_data.get(WAITING_PRICE_TEMPLATE_KEY):
+        return await receive_price_filter_template(update, context)
+    if context.user_data.get(WAITING_SIZE_TEMPLATE_KEY):
+        return await receive_size_filter_template(update, context)
 
 
 def build_fvg_price_handlers():
     return (
         CommandHandler("fvg_price", fvg_price),
         CallbackQueryHandler(fvg_price_button, pattern=r"^menu:fvg-price$"),
+        CommandHandler("fvg_size", fvg_size),
+        CallbackQueryHandler(fvg_size_button, pattern=r"^menu:fvg-size$"),
         CommandHandler("cancel", cancel_price_filter),
         MessageHandler(
             filters.TEXT & ~filters.COMMAND,
-            receive_price_filter_template,
+            receive_fvg_filter_template,
         ),
     )
 
@@ -271,11 +432,19 @@ def format_fvg_settings(user: dict) -> str:
     symbols = []
     for symbol, config in user.get("symbols", {}).items():
         price = config.get("price_filter", {})
+        size = config.get("size_filter", {})
+        details = []
         if price.get("enabled"):
             limits = f"{price.get('min') or '−∞'}…{price.get('max') or '+∞'}"
-            symbols.append(f"{symbol} ({limits})")
-        else:
-            symbols.append(symbol)
+            details.append(f"цена {limits}")
+        if size.get("enabled"):
+            suffix = "%" if size.get("unit") == "PERCENT" else "$"
+            limits = (
+                f"{size.get('min') or '0'}{suffix}…"
+                f"{size.get('max') or '∞'}{suffix}"
+            )
+            details.append(f"размер {limits}")
+        symbols.append(f"{symbol} ({'; '.join(details)})" if details else symbol)
     return (
         "⚙️ Настройки FVG 15м\n"
         f"Модуль: {on(user.get('enabled'))}\n"

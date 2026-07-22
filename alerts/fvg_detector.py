@@ -147,3 +147,35 @@ def price_allowed(
     if maximum is not None and signal_price > maximum:
         return False
     return True
+
+
+def fvg_size_value(
+    zone_size: Decimal,
+    signal_price: Decimal,
+    unit: str,
+) -> Decimal:
+    if unit == "USD":
+        return zone_size
+    if unit == "PERCENT":
+        if signal_price <= 0:
+            raise ValueError("Signal price must be positive")
+        return zone_size / signal_price * Decimal("100")
+    raise ValueError("FVG size unit must be USD or PERCENT")
+
+
+def size_allowed(
+    zone_size: Decimal,
+    signal_price: Decimal,
+    enabled: bool,
+    unit: str,
+    minimum: Decimal | None,
+    maximum: Decimal | None,
+) -> bool:
+    if not enabled:
+        return True
+    value = fvg_size_value(zone_size, signal_price, unit)
+    if minimum is not None and value < minimum:
+        return False
+    if maximum is not None and value > maximum:
+        return False
+    return True

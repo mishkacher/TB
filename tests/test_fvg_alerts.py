@@ -3,11 +3,17 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from tempfile import TemporaryDirectory
 
-from alerts.fvg_detector import FvgDetector, aggregate_current_15m, price_allowed
+from alerts.fvg_detector import (
+    FvgDetector,
+    aggregate_current_15m,
+    fvg_size_value,
+    price_allowed,
+    size_allowed,
+)
 from alerts.fvg_models import Candle, FvgDirection, FvgEventType
 from alerts.fvg_service import FvgAlertService, format_fvg_message
 from alerts.fvg_store import FvgAlertSettings, FvgEventStore
-from handlers.fvg_alert import parse_price_filter_template
+from handlers.fvg_alert import parse_price_filter_template, parse_size_filter_template
 
 
 UTC = timezone.utc
@@ -110,6 +116,44 @@ class PriceFilterTests(unittest.TestCase):
             )
 
 
+class SizeFilterTests(unittest.TestCase):
+    def test_usd_and_percent_values_and_inclusive_boundaries(self):
+        self.assertEqual(
+            fvg_size_value(Decimal("5"), Decimal("100"), "USD"), Decimal("5")
+        )
+        self.assertEqual(
+            fvg_size_value(Decimal("5"), Decimal("100"), "PERCENT"), Decimal("5")
+        )
+        self.assertTrue(
+            size_allowed(
+                Decimal("5"), Decimal("100"), True, "USD", Decimal("5"), Decimal("5")
+            )
+        )
+        self.assertFalse(
+            size_allowed(
+                Decimal("4.99"), Decimal("100"), True, "USD", Decimal("5"), None
+            )
+        )
+
+    def test_parses_percent_template_and_disable_template(self):
+        values = parse_size_filter_template(
+            "Инструмент: BTC/USDT\n"
+            "Единица размера: проценты\n"
+            "Минимальный размер: 0,10%\n"
+            "Максимальный размер: нет\n"
+            "Применять к: оба"
+        )
+        self.assertEqual(values["unit"], "PERCENT")
+        self.assertEqual(values["minimum"], "0.10")
+        self.assertIsNone(values["maximum"])
+        self.assertEqual(
+            parse_size_filter_template(
+                "Инструмент: ETHUSDT\nФильтр размера: выключить"
+            ),
+            {"symbol": "ETHUSDT", "enabled": False},
+        )
+
+
 class SettingsAndDedupTests(unittest.TestCase):
     def test_migrates_legacy_settings_and_preserves_pre_choice(self):
         with TemporaryDirectory() as directory:
@@ -144,6 +188,31 @@ class SettingsAndDedupTests(unittest.TestCase):
             confirmed = detector.detect_confirmed([a, b, candle(2, 112, 105)])
             self.assertEqual(settings.recipients(pre), [])
             self.assertEqual(settings.recipients(confirmed), [1])
+
+    def test_size_filter_is_user_scoped_and_can_apply_only_to_pre_fvg(self):
+        with TemporaryDirectory() as directory:
+            settings = FvgAlertSettings(f"{directory}/settings.json")
+            settings.set_enabled(1, True)
+            settings.set_pre_enabled(1, True)
+            settings.set_enabled(2, True)
+            settings.set_pre_enabled(2, True)
+            settings.set_size_filter(
+                1,
+                "BTCUSDT",
+                "5",
+                None,
+                unit="PERCENT",
+                apply_to_pre=True,
+                apply_to_confirmed=False,
+            )
+            detector = FvgDetector()
+            a = candle(0, 100, 90)
+            b = candle(1, 108, 96)
+            c = candle(2, 112, 105, closed=False)
+            pre = detector.detect_pre(a, b, c, c.open_time + timedelta(minutes=12))
+            confirmed = detector.detect_confirmed([a, b, candle(2, 112, 105)])
+            self.assertEqual(settings.recipients(pre), [2])
+            self.assertEqual(settings.recipients(confirmed), [1, 2])
 
     def test_market_event_and_user_deliveries_are_separate_and_persistent(self):
         with TemporaryDirectory() as directory:
