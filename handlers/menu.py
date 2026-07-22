@@ -17,6 +17,7 @@ from handlers.fvg_alert import (
     format_fvg_stats,
     send_fvg_stats,
 )
+from config import MULTISCANNER_ENABLED
 
 
 @dataclass(frozen=True)
@@ -27,12 +28,12 @@ class MenuAction:
 
 # Add a new user-facing feature here once: it is rendered in the main menu and
 # dispatched below, rather than maintaining a separate list of buttons.
-MAIN_ACTIONS = (
+MAIN_ACTIONS = tuple(action for action in (
     MenuAction("scan", "🔎 Сканер рынка"),
     MenuAction("btc", "₿ BTC сейчас"),
     MenuAction("chart", "📈 График BTC"),
     MenuAction("status", "📊 Статус системы"),
-)
+) if MULTISCANNER_ENABLED or action.key != "scan")
 
 
 def build_main_menu(chat_id, settings=None):
@@ -117,7 +118,7 @@ async def menu_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
     message = query.message
     chat_id = update.effective_chat.id
 
-    if action == "scan":
+    if action == "scan" and MULTISCANNER_ENABLED:
         await send_scan(message)
     elif action == "btc":
         await send_btc(message)

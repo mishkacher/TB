@@ -5,6 +5,7 @@ from alerts.scheduler import schedule_alerts, schedule_fvg_alerts, start_fvg_str
 from config import (
     AUTO_ALERTS_ENABLED,
     AUTO_ALERTS_INTERVAL_MINUTES,
+    MULTISCANNER_ENABLED,
     TELEGRAM_TOKEN,
 )
 
@@ -32,7 +33,6 @@ BOT_COMMANDS = (
     BotCommand("status", "Состояние системы"),
     BotCommand("btc", "BTC сейчас"),
     BotCommand("chart", "График"),
-    BotCommand("scan", "Сканер рынка"),
 )
 
 
@@ -84,9 +84,8 @@ def main():
         CommandHandler("chart", chart)
     )
 
-    app.add_handler(
-        CommandHandler("scan", scan)
-    )
+    if MULTISCANNER_ENABLED:
+        app.add_handler(CommandHandler("scan", scan))
 
     app.add_handler(
         CommandHandler("status", status)

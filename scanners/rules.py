@@ -5,6 +5,12 @@ class RulesEngine:
 
         rules = []
 
+        if data.get("signal") == "NEUTRAL":
+            return {
+                "quality": "C",
+                "rules": rules,
+            }
+
 
         direction = data["trend"]
         rsi = data["rsi"]

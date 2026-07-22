@@ -115,6 +115,12 @@ class RankingEngine:
         score = min(score, 100)
 
 
+        # Без торгового сигнала монета не должна попадать в топ
+
+        if data["signal"] == "NEUTRAL":
+            score = min(score, 35)
+
+
         return {
 
             "ranking_score": score,

@@ -20,5 +20,10 @@ for r in results:
         "| Scanner:",
         r["score"],
         "| Ranking:",
-        r["ranking_score"]
+        r["ranking_score"],
+        "| Quality:",
+        r["quality"],
     )
+
+    if r["rules"]:
+        print("  Reasons:", ", ".join(r["rules"]))

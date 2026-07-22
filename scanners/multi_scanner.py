@@ -14,12 +14,20 @@ from scanners.rules import RulesEngine
 class MultiScanner:
 
 
-    def __init__(self):
+    def __init__(
+        self,
+        client=None,
+        scanner=None,
+        ranking=None,
+        rules=None,
+        symbols=None,
+    ):
 
-        self.client = BitunixClient()
-        self.scanner = MarketScanner()
-        self.ranking = RankingEngine()
-        self.rules = RulesEngine()
+        self.client = client or BitunixClient()
+        self.scanner = scanner or MarketScanner()
+        self.ranking = ranking or RankingEngine()
+        self.rules = rules or RulesEngine()
+        self.symbols = symbols or SCANNER_COINS
 
 
 
@@ -28,7 +36,7 @@ class MultiScanner:
         results = []
 
 
-        for symbol in SCANNER_COINS:
+        for symbol in self.symbols:
 
             try:
 

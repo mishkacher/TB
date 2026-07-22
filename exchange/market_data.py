@@ -1,17 +1,15 @@
-from exchange.bitunix import BitunixExchange
+from exchanges.bitunix import BitunixClient
 
 
 class MarketData:
 
     def __init__(self):
-        self.exchange = BitunixExchange()
+        self.exchange = BitunixClient()
 
 
     def get_price(self, symbol="BTCUSDT"):
 
-        data = self.exchange.get_ticker(symbol)
-
-        ticker = data["data"][0]
+        ticker = self.exchange.get_ticker(symbol)
 
         return {
             "symbol": ticker["symbol"],
