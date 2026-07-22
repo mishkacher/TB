@@ -14,6 +14,7 @@ from alerts.fvg_models import Candle, FvgDirection, FvgEventType
 from alerts.fvg_service import FvgAlertService, format_fvg_message
 from alerts.fvg_store import FvgAlertSettings, FvgEventStore
 from handlers.fvg_alert import parse_price_filter_template, parse_size_filter_template
+from handlers.fvg_filter_ui import parse_filter_range
 
 
 UTC = timezone.utc
@@ -121,6 +122,11 @@ class SizeFilterTests(unittest.TestCase):
         self.assertEqual(
             fvg_size_value(Decimal("5"), Decimal("100"), "USD"), Decimal("5")
         )
+
+    def test_compact_range_accepts_closed_and_open_boundaries(self):
+        self.assertEqual(parse_filter_range("0,1 - 0,5%"), ("0.1", "0.5"))
+        self.assertEqual(parse_filter_range("60000-"), ("60000", None))
+        self.assertEqual(parse_filter_range("-90000"), (None, "90000"))
         self.assertEqual(
             fvg_size_value(Decimal("5"), Decimal("100"), "PERCENT"), Decimal("5")
         )
@@ -213,6 +219,24 @@ class SettingsAndDedupTests(unittest.TestCase):
             confirmed = detector.detect_confirmed([a, b, candle(2, 112, 105)])
             self.assertEqual(settings.recipients(pre), [2])
             self.assertEqual(settings.recipients(confirmed), [1, 2])
+
+    def test_price_filter_can_target_only_bullish_fvg(self):
+        with TemporaryDirectory() as directory:
+            settings = FvgAlertSettings(f"{directory}/settings.json")
+            settings.set_enabled(1, True)
+            settings.set_price_filter(
+                1, "BTCUSDT", "200", None,
+                apply_to_bullish=True, apply_to_bearish=False,
+            )
+            detector = FvgDetector()
+            bullish = detector.detect_confirmed([
+                candle(0, 100, 90), candle(1, 108, 96), candle(2, 112, 105)
+            ])
+            bearish = detector.detect_confirmed([
+                candle(0, 110, 100), candle(1, 104, 95), candle(2, 94, 90)
+            ])
+            self.assertEqual(settings.recipients(bullish), [])
+            self.assertEqual(settings.recipients(bearish), [1])
 
     def test_market_event_and_user_deliveries_are_separate_and_persistent(self):
         with TemporaryDirectory() as directory:

@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 from bot import BOT_COMMANDS, configure_bot_interface
 from handlers.auth import PUBLIC_ACCESS_ENABLED, authorized
 from handlers.fvg_alert import build_fvg_stats_period_menu
-from handlers.menu import build_chart_menu, build_main_menu
+from handlers.menu import build_chart_menu, build_fvg_settings_menu, build_main_menu
 
 
 class EnabledSettings:
@@ -22,7 +22,7 @@ class MenuTests(unittest.TestCase):
         labels = [row[0].text for row in keyboard]
         callbacks = [row[0].callback_data for row in keyboard]
 
-        self.assertIn("🔎 Сканер рынка", labels)
+        self.assertNotIn("🔎 Сканер рынка", labels)
         self.assertIn("₿ BTC сейчас", labels)
         self.assertIn("📈 График BTC", labels)
         self.assertIn("📊 Статус системы", labels)
@@ -38,6 +38,28 @@ class MenuTests(unittest.TestCase):
             [button.callback_data for button in buttons],
             ["menu:chart:15m", "menu:chart:1h", "menu:chart:4h"],
         )
+
+    def test_fvg_filter_buttons_show_enabled_and_paused_status(self):
+        class Settings:
+            def user(self, chat_id):
+                return {
+                    "enabled": True,
+                    "notify_confirmed_fvg": True,
+                    "notify_pre_fvg": True,
+                    "bullish_enabled": True,
+                    "bearish_enabled": True,
+                    "symbols": {
+                        "BTCUSDT": {
+                            "price_filter": {"enabled": True},
+                            "size_filter": {"enabled": False},
+                        }
+                    },
+                }
+
+        rows = build_fvg_settings_menu(42, Settings()).inline_keyboard
+        labels = [button.text for row in rows for button in row]
+        self.assertIn("✅ Цена", labels)
+        self.assertIn("⏸️ 📏 Размер FVG", labels)
 
     def test_fvg_statistics_period_menu_contains_all_periods(self):
         buttons = build_fvg_stats_period_menu(30).inline_keyboard[0]

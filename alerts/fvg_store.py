@@ -54,6 +54,8 @@ def _symbol_defaults() -> dict:
             "max": None,
             "apply_to_pre_fvg": True,
             "apply_to_confirmed_fvg": True,
+            "apply_to_bullish": True,
+            "apply_to_bearish": True,
         },
         "size_filter": {
             "enabled": False,
@@ -62,6 +64,8 @@ def _symbol_defaults() -> dict:
             "max": None,
             "apply_to_pre_fvg": True,
             "apply_to_confirmed_fvg": True,
+            "apply_to_bullish": True,
+            "apply_to_bearish": True,
         },
     }
 
@@ -162,6 +166,7 @@ class FvgAlertSettings:
     def set_price_filter(
         self, chat_id: int, symbol: str, minimum: str | None, maximum: str | None,
         enabled: bool = True, apply_to_pre: bool = True, apply_to_confirmed: bool = True,
+        apply_to_bullish: bool = True, apply_to_bearish: bool = True,
     ) -> None:
         try:
             min_value = Decimal(minimum) if minimum is not None else None
@@ -178,6 +183,8 @@ class FvgAlertSettings:
                 "max": str(max_value) if max_value is not None else None,
                 "apply_to_pre_fvg": bool(apply_to_pre),
                 "apply_to_confirmed_fvg": bool(apply_to_confirmed),
+                "apply_to_bullish": bool(apply_to_bullish),
+                "apply_to_bearish": bool(apply_to_bearish),
             }
         self._transaction(mutate)
 
@@ -191,6 +198,8 @@ class FvgAlertSettings:
         enabled: bool = True,
         apply_to_pre: bool = True,
         apply_to_confirmed: bool = True,
+        apply_to_bullish: bool = True,
+        apply_to_bearish: bool = True,
     ) -> None:
         unit = unit.upper()
         if unit not in {"USD", "PERCENT"}:
@@ -219,6 +228,8 @@ class FvgAlertSettings:
                 "max": str(max_value) if max_value is not None else None,
                 "apply_to_pre_fvg": bool(apply_to_pre),
                 "apply_to_confirmed_fvg": bool(apply_to_confirmed),
+                "apply_to_bullish": bool(apply_to_bullish),
+                "apply_to_bearish": bool(apply_to_bearish),
             }
 
         self._transaction(mutate)
@@ -247,10 +258,17 @@ class FvgAlertSettings:
             price = symbol_cfg.get("price_filter", {})
             apply_key = "apply_to_pre_fvg" if event.event_type is FvgEventType.PRE_FVG else "apply_to_confirmed_fvg"
             use_filter = price.get("enabled", False) and price.get(apply_key, True)
+            direction_apply_key = (
+                "apply_to_bullish"
+                if event.direction is FvgDirection.BULLISH
+                else "apply_to_bearish"
+            )
+            use_filter = use_filter and price.get(direction_apply_key, True)
             if not price_allowed(event.signal_price, use_filter, _decimal(price.get("min")), _decimal(price.get("max"))):
                 continue
             size = symbol_cfg.get("size_filter", {})
             use_size_filter = size.get("enabled", False) and size.get(apply_key, True)
+            use_size_filter = use_size_filter and size.get(direction_apply_key, True)
             if not size_allowed(
                 event.zone_size,
                 event.signal_price,

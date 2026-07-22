@@ -54,6 +54,14 @@ def build_fvg_settings_menu(chat_id, settings=None):
     user = settings.user(chat_id)
     def mark(enabled):
         return "✅" if enabled else "⏸️"
+    symbols = user.get("symbols", {}).values()
+    price_enabled = any(
+        item.get("price_filter", {}).get("enabled", False) for item in symbols
+    )
+    symbols = user.get("symbols", {}).values()
+    size_enabled = any(
+        item.get("size_filter", {}).get("enabled", False) for item in symbols
+    )
     return InlineKeyboardMarkup([
         [InlineKeyboardButton(f"{mark(user['enabled'])} Модуль FVG", callback_data="menu:fvg-toggle")],
         [
@@ -66,9 +74,13 @@ def build_fvg_settings_menu(chat_id, settings=None):
         ],
         [
             InlineKeyboardButton("➕ Инструменты", callback_data="menu:fvg-symbol-help"),
-            InlineKeyboardButton("💰 Фильтр цены", callback_data="menu:fvg-price"),
+            InlineKeyboardButton(
+                f"{mark(price_enabled)} Цена", callback_data="menu:fvg-price"
+            ),
         ],
-        [InlineKeyboardButton("📏 Размер FVG", callback_data="menu:fvg-size")],
+        [InlineKeyboardButton(
+            f"{mark(size_enabled)} 📏 Размер FVG", callback_data="menu:fvg-size"
+        )],
         [InlineKeyboardButton("⬅️ Главное меню", callback_data="menu:fvg-back")],
     ])
 
