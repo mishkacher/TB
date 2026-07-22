@@ -52,14 +52,14 @@ if [[ ! -f "${INSTALL_DIR}/.env" ]]; then
   sed -i "s|^ALLOWED_TELEGRAM_IDS=.*|ALLOWED_TELEGRAM_IDS=${TELEGRAM_ID}|" "${INSTALL_DIR}/.env"
 fi
 
+mkdir -p "${INSTALL_DIR}/data" /tmp/trading-assistant-mpl
+chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}" /tmp/trading-assistant-mpl
+chmod 600 "${INSTALL_DIR}/.env"
+
 echo "Создаю виртуальное окружение и устанавливаю зависимости…"
 runuser -u "${SERVICE_USER}" -- python3 -m venv "${INSTALL_DIR}/.venv"
 runuser -u "${SERVICE_USER}" -- "${INSTALL_DIR}/.venv/bin/python" -m pip install --upgrade pip
 runuser -u "${SERVICE_USER}" -- "${INSTALL_DIR}/.venv/bin/python" -m pip install -r "${INSTALL_DIR}/requirements.txt"
-
-mkdir -p "${INSTALL_DIR}/data" /tmp/trading-assistant-mpl
-chown -R "${SERVICE_USER}:${SERVICE_USER}" "${INSTALL_DIR}" /tmp/trading-assistant-mpl
-chmod 600 "${INSTALL_DIR}/.env"
 
 cat > "/etc/systemd/system/${SERVICE_NAME}.service" <<EOF
 [Unit]
