@@ -152,7 +152,7 @@ def _price(value: Decimal) -> str:
 
 def format_fvg_message(event: FvgEvent) -> str:
     bullish = event.direction is FvgDirection.BULLISH
-    icon = "🟢🐂" if bullish else "🔴🐻"
+    icon = "🟢🐮" if bullish else "🔴🐻"
     direction = "Бычий" if bullish else "Медвежий"
     if event.event_type is FvgEventType.PRE_FVG:
         title = f"{icon} Возможный {direction.lower()} FVG"

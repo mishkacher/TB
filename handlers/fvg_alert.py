@@ -409,7 +409,7 @@ def format_fvg_stats(days=7):
     bull, bear = stats["BULLISH"], stats["BEARISH"]
     return (
         f"📊 FVG-события · {period}\n\n"
-        f"🟢🐂 Бычьи: {bull['total']} (подтверждено {bull['confirmed']}, предварительных {bull['pre']})\n"
+        f"🟢🐮 Бычьи: {bull['total']} (подтверждено {bull['confirmed']}, предварительных {bull['pre']})\n"
         f"🔴🐻 Медвежьи: {bear['total']} (подтверждено {bear['confirmed']}, предварительных {bear['pre']})\n"
         f"Отправлено уведомлений пользователям: {stats['deliveries']}"
     )

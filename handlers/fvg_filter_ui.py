@@ -75,7 +75,7 @@ def build_filter_menu(chat_id: int, kind: str, symbol: str, settings=None):
         )],
         [
             InlineKeyboardButton(
-                f"{mark(config.get('apply_to_bullish', True))} 🐂 Бычьи",
+                f"{mark(config.get('apply_to_bullish', True))} 🐮 Бычьи",
                 callback_data=f"fvg-filter:bull:{kind}:{symbol}",
             ),
             InlineKeyboardButton(

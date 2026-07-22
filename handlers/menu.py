@@ -69,7 +69,7 @@ def build_fvg_settings_menu(chat_id, settings=None):
             InlineKeyboardButton(f"{mark(user['notify_pre_fvg'])} Пред-FVG T−3", callback_data="menu:pre-fvg-toggle"),
         ],
         [
-            InlineKeyboardButton(f"{mark(user['bullish_enabled'])} 🐂 Бычьи", callback_data="menu:fvg-bull-toggle"),
+            InlineKeyboardButton(f"{mark(user['bullish_enabled'])} 🐮 Бычьи", callback_data="menu:fvg-bull-toggle"),
             InlineKeyboardButton(f"{mark(user['bearish_enabled'])} 🐻 Медвежьи", callback_data="menu:fvg-bear-toggle"),
         ],
         [
